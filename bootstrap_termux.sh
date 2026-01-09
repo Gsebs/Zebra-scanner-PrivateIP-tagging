@@ -62,7 +62,7 @@ cd "$INSTALL_DIR"
 
 # Run the python script
 # Change '/sdcard/ScanDocuments' to your actual target directory
-TARGET_SCAN_DIR="/sdcard/ScanDocuments" 
+TARGET_SCAN_DIR="/sdcard/TestScanDocument" 
 
 echo "[*] Target Directory: \$TARGET_SCAN_DIR"
 echo "[*] Running Sync..."

@@ -46,14 +46,17 @@ Before deploying, install these two apps on your Zebra MC33 (via Play Store, F-D
 ## 2. Deploy to Scanner
 
 ### A. From Mac / Linux
-1.  Connect the Zebra scanner to your Mac via USB.
-2.  **Verify Connection**: Open Terminal and run:
-    ```bash
-    adb devices
-    ```
-    *   If it says `unauthorized`, look at the scanner screen and tap **"Allow"** on the popup.
-    *   If it says `device`, you are ready!
-3.  Run the deployment script:
+1.  **Enable USB Debugging on Scanner** (Critical Step):
+    *   Go to **Settings > About phone**.
+    *   Tap **Build number** 7 times until it says "You are a developer".
+    *   Go back to **Settings > System > Developer options**.
+    *   Turn **ON** `USB debugging`.
+2.  Connect the scanner via USB.
+3.  **Verify Connection**:
+    *   Run `adb devices` in Terminal.
+    *   **Look at the scanner screen!** Tap **"Allow"** (Check "Always allow from this computer").
+    *   Run `adb devices` again. It must say `device` (not `unauthorized`).
+4.  Run the deployment script:
     ```bash
     cd /path/to/extracted/folder
     chmod +x deploy_to_scanner.sh
@@ -61,14 +64,17 @@ Before deploying, install these two apps on your Zebra MC33 (via Play Store, F-D
     ```
 
 ### B. From Windows
-1.  Connect the Zebra scanner to your PC via USB.
-2.  **Verify Connection**: Open Command Prompt (`cmd`) and run:
-    ```cmd
-    adb devices
-    ```
-    *   Look for the **"Allow USB Debugging"** popup on the scanner screen and tap **Allowed**.
-    *   Ensure the status changes from `unauthorized` to `device`.
-3.  Double-click **`deploy_to_scanner.bat`**.
+1.  **Enable USB Debugging on Scanner** (Critical Step):
+    *   Go to **Settings > About phone**.
+    *   Tap **Build number** 7 times.
+    *   Go back to **Settings > System > Developer options**.
+    *   Turn **ON** `USB debugging`.
+2.  Connect the scanner via USB.
+3.  **Verify Connection**:
+    *   Run `adb devices` in Command Prompt.
+    *   **Look at the scanner screen!** Tap **"Allow"** (Check "Always allow from this computer").
+    *   Ensure it says `device`.
+4.  Double-click **`deploy_to_scanner.bat`**.
 
 > **Success?** You should see "Deployment Files Transferred!" and instructions for the next step.
 
@@ -106,6 +112,27 @@ This is what the daily operator will do.
 3.  A window will pop up, rename the files with the current IP, upload them, and close.
 
 ---
+
+## Advanced: Changing the Target Directory
+By default, the widget scans `/sdcard/TestScanDocument`. If you need to scan a different folder (e.g., for a specific department or scanner), follow these steps:
+
+1.  **Edit the Script**:
+    *   Open `bootstrap_termux.sh` on your computer.
+    *   Find the line: `TARGET_SCAN_DIR="/sdcard/TestScanDocument"`
+    *   Change it to your desired path.
+        ```bash
+        TARGET_SCAN_DIR="/sdcard/MyNewScanFolder"
+        ```
+
+2.  **Redeploy**:
+    *   Run `./deploy_to_scanner.sh` (Mac) or `deploy_to_scanner.bat` (Windows).
+
+3.  **Update the Widget**:
+    *   Open **Termux** on the scanner.
+    *   Run: `./bootstrap_termux.sh`
+    *   Type `y` if asked to overwrite.
+
+The widget will now point to the new folder!
 
 ## Troubleshooting
 - **"ADB not found"**: Install Android Platform Tools.
