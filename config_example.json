@@ -1,0 +1,6 @@
+{
+    "ftp_server": "your.ftp.server.com",
+    "ftp_user": "your_username",
+    "ftp_password": "your_password",
+    "ftp_port": 21
+}
