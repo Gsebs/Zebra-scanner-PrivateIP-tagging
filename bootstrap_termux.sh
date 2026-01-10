@@ -48,7 +48,8 @@ mkdir -p "$SHORTCUT_DIR"
 cat <<EOF > "$SHORTCUT_SCRIPT"
 #!/data/data/com.termux/files/usr/bin/bash
 # Enable access to shared storage
-termux-setup-storage
+# Enable access to shared storage (Already done in setup, but kept commented just in case)
+# termux-setup-storage
 
 # Clear screen for readability
 clear

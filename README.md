@@ -85,7 +85,7 @@ Perform these steps once on the device itself.
 
 1.  Open the **Termux** app on the scanner.
 2.  The deployment script output gave you a command block. allow file access if prompted.
-3.  Run the bootstrap script by typing (or pasting):
+3.  Run the bootstrap script by typing (or pasting) (login to Gmail on scanner and send this code snippet to the scanner via email. Then copy the code snippet from the email and paste it into Termux on the scanner):
     ```bash
     cp /sdcard/Download/ZebraTag/bootstrap_termux.sh ~/
     chmod +x ~/bootstrap_termux.sh
@@ -124,15 +124,43 @@ By default, the widget scans `/sdcard/TestScanDocument`. If you need to scan a d
         TARGET_SCAN_DIR="/sdcard/MyNewScanFolder"
         ```
 
-2.  **Redeploy**:
-    *   Run `./deploy_to_scanner.sh` (Mac) or `deploy_to_scanner.bat` (Windows).
 
-3.  **Update the Widget**:
-    *   Open **Termux** on the scanner.
-    *   Run: `./bootstrap_termux.sh`
-    *   Type `y` if asked to overwrite.
+2.  **Push the Update (From Computer)**:
+    *   Connect the scanner via USB.
+    *   Run the deployment script again to push the new file:
+    *   **Mac/Linux**:
+        ```bash
+        ./deploy_to_scanner.sh
+        ```
+    *   **Windows**: Double-click `deploy_to_scanner.bat`
 
-The widget will now point to the new folder!
+3.  **Apply the Update (On Scanner)**:
+    *   Open the **Termux** app on the scanner.
+    *   Run the installer again to update the widget:
+        ```bash
+        ./bootstrap_termux.sh
+        ```
+    *   **Important**: If it asks "Overwrite?", type `y` and press Enter.
+
+The widget is now updated! You do **not** need to delete or re-add the widget icon; it will automatically use the new path next time you tap it.
+
+
+## Expert: Renaming the Widget
+By default, the widget is named `ZebraSync`. To change it to something custom like **"RFID Transfer"**, you have two options:
+
+### Option A: Edit the source code (Permanent)
+1.  Open `bootstrap_termux.sh` on your computer.
+2.  Find the line: `SHORTCUT_SCRIPT="$SHORTCUT_DIR/ZebraSync.sh"`
+3.  Change it to: `SHORTCUT_SCRIPT="$SHORTCUT_DIR/RFID Transfer.sh"`
+4.  Run the deployment steps again (Redeploy -> Update Widget).
+
+### Option B: Rename on the Scanner (Quick)
+1.  Open the **Termux** app.
+2.  Type this command to move the file:
+    ```bash
+    mv ~/.shortcuts/ZebraSync.sh "~/.shortcuts/RFID Transfer.sh"
+    ```
+3.  Go to the Home Screen, remove the old widget, and add the new one. Use quotes if there are spaces in the name!
 
 ## Troubleshooting
 - **"ADB not found"**: Install Android Platform Tools.
