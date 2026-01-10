@@ -113,7 +113,7 @@ This is what the daily operator will do.
 
 ---
 
-## Advanced: Changing the Target Directory
+## Changing the Target Directory
 By default, the widget scans `/sdcard/TestScanDocument`. If you need to scan a different folder (e.g., for a specific department or scanner), follow these steps:
 
 1.  **Edit the Script**:
@@ -145,7 +145,7 @@ By default, the widget scans `/sdcard/TestScanDocument`. If you need to scan a d
 The widget is now updated! You do **not** need to delete or re-add the widget icon; it will automatically use the new path next time you tap it.
 
 
-## Expert: Renaming the Widget
+## Renaming the Widget
 By default, the widget is named `ZebraSync`. To change it to something custom like **"RFID Transfer"**, you have two options:
 
 ### Option A: Edit the source code (Permanent)
