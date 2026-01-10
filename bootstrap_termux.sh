@@ -4,7 +4,7 @@
 SOURCE_DIR="/sdcard/Download/ZebraTag"
 INSTALL_DIR="$HOME/ZebraTag"
 SHORTCUT_DIR="$HOME/.shortcuts"
-SHORTCUT_SCRIPT="$SHORTCUT_DIR/ZebraSync.sh"
+SHORTCUT_SCRIPT="$SHORTCUT_DIR/RFID Transfer.sh"
 
 echo "=========================================="
 echo "      Zebra Scanner Setup (Termux)"
@@ -63,7 +63,7 @@ cd "$INSTALL_DIR"
 
 # Run the python script
 # Change '/sdcard/ScanDocuments' to your actual target directory
-TARGET_SCAN_DIR="/sdcard/TestScanDocument" 
+TARGET_SCAN_DIR="/sdcard/Inventory" 
 
 echo "[*] Target Directory: \$TARGET_SCAN_DIR"
 echo "[*] Running Sync..."
@@ -90,6 +90,6 @@ echo "Instructions:"
 echo "1. Go to your Android Home Screen."
 echo "2. LONG PRESS on empty space -> Widgets."
 echo "3. Find 'Termux:Widget' and drag it to the screen."
-echo "4. You should see 'ZebraSync' in the list."
+echo "4. You should see 'RFID Transfer' in the list."
 echo "5. Tap it to test!"
 echo "=========================================="

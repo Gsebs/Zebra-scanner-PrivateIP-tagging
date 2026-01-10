@@ -64,17 +64,20 @@ Before deploying, install these two apps on your Zebra MC33 (via Play Store, F-D
     ```
 
 ### B. From Windows
-1.  **Enable USB Debugging on Scanner** (Critical Step):
+1.  **Install ADB (One-time setup)**:
+    *   Download [SDK Platform-Tools for Windows](https://developer.android.com/studio/releases/platform-tools).
+    *   Extract the zip file to a folder (e.g., `C:\platform-tools`).
+    *   **Crucial**: Copy `deploy_to_scanner.bat` and all project files INTO that `platform-tools` folder (so they are next to `adb.exe`).
+2.  **Enable USB Debugging on Scanner** (Critical Step):
     *   Go to **Settings > About phone**.
     *   Tap **Build number** 7 times.
     *   Go back to **Settings > System > Developer options**.
     *   Turn **ON** `USB debugging`.
-2.  Connect the scanner via USB.
-3.  **Verify Connection**:
-    *   Run `adb devices` in Command Prompt.
-    *   **Look at the scanner screen!** Tap **"Allow"** (Check "Always allow from this computer").
-    *   Ensure it says `device`.
-4.  Double-click **`deploy_to_scanner.bat`**.
+3.  Connect the scanner via USB.
+4.  **Run the Script**:
+    *   Open the folder in File Explorer.
+    *   **Double-click** the file named `deploy_to_scanner.bat`.
+    *   A black window will appear and transfer the files. It will pause at the end to show you the result.
 
 > **Success?** You should see "Deployment Files Transferred!" and instructions for the next step.
 
@@ -168,3 +171,7 @@ By default, the widget is named `ZebraSync`. To change it to something custom li
     - Windows: [Download here](https://developer.android.com/studio/releases/platform-tools)
 - **Widget shows "Permission Denied"**: Open Termux and run `termux-setup-storage` again, then accept the popup.
 - **Files not uploading**: Check `config.json` for typos in the password or server address. Check if the scanner has Wi-Fi.
+- **FTP Error: "No address associated with hostname"**:
+    *   This happens if you use a `.local` domain (like `server.local`) and the scanner's Android version doesn't support mDNS.
+    *   **Fix**: Use the **IP Address** of the server instead (e.g., `192.168.1.50`).
+    *   Ask your IT admin for the static IP of the server.
