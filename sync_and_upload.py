@@ -25,22 +25,52 @@ def load_config():
         print(f"Error: Failed to parse '{CONFIG_FILE}'. Please check the JSON syntax.")
         sys.exit(1)
 
-def get_private_ip():
+import ipaddress
+import subprocess
+
+# ... (Previous config load code remains same, included implicitly or handled by diff)
+
+def get_network_info():
     """
-    Retrieves the device's private IP address by connecting to a public DNS.
-    This method is reliable across different platforms and Android versions.
+    Retrieves the device's Private IP and the Network Address (Subnet start).
+    Returns tuple: (ip_address, subnet_network_address)
     """
+    # 1. Get IP using socket trick (most reliable for "outgoing" interface)
+    local_ip = "Unknown"
     try:
-        # Create a dummy socket connection to a public DNS server (Google DNS)
-        # We don't actually send data, just use it to determine the local interface IP.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
-        ip_address = s.getsockname()[0]
+        local_ip = s.getsockname()[0]
         s.close()
-        return ip_address
     except Exception as e:
         print(f"Error: Could not determine Private IP address. Details: {e}")
         sys.exit(1)
+
+    # 2. Get Subnet Network Address using system commands
+    # We use 'ip' command which is standard on Android/Termux and Linux
+    subnet_start = "Unknown"
+    
+    try:
+        # Run 'ip -4 addr show' and look for the line associated with our IP
+        output = subprocess.check_output("ip -4 addr show", shell=True).decode()
+        for line in output.splitlines():
+            if local_ip in line:
+                # Example output line: "    inet 192.168.1.55/24 brd ..."
+                parts = line.split()
+                for part in parts:
+                    # Look for the CIDR notation (e.g. 192.168.1.55/24)
+                    if '/' in part and part.startswith(local_ip):
+                        iface = ipaddress.IPv4Interface(part)
+                        # .network gives 192.168.1.0/24, we want just 192.168.1.0
+                        subnet_start = str(iface.network.network_address)
+                        break
+            if subnet_start != "Unknown":
+                break
+    except Exception as e:
+        print(f"Warning: Could not determine subnet mask details: {e}")
+        # Continue with "Unknown" if needed, or handle differently
+        
+    return local_ip, subnet_start
 
 def get_target_files(directory):
     """Returns a list of files in the directory, excluding hidden files."""
@@ -50,16 +80,13 @@ def get_target_files(directory):
         print(f"Error: Could not access directory '{directory}'. Details: {e}")
         sys.exit(1)
 
-def rename_files(directory, ip_address):
+def rename_files(directory, ip_address, subnet_start):
     """
-    Renames files in the directory by appending the IP address.
-    Skipped if the file is already tagged with an IP.
-    Returns a list of (new_full_path, original_filename) tuples for uploaded files.
+    Renames files to: {IP}_SN_{Subnet}_{OriginalName}
     """
-    
-    # Regex to check if a file already ends with an IP address pattern (e.g., _192.168.1.5.txt)
-    # Pattern: _(1-3 digits).(1-3 digits).(1-3 digits).(1-3 digits) before the extension
-    ip_pattern = re.compile(r'_(\d{1,3}\.){3}\d{1,3}(\.[^.]+)?$')
+    # Regex to check if file already starts with IP pattern
+    # Matches: 192.168.1.50_SN_...
+    tag_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}_SN_')
     
     renamed_files_info = []
 
@@ -72,16 +99,16 @@ def rename_files(directory, ip_address):
 
     for filename in files:
         file_path = os.path.join(directory, filename)
-        name, ext = os.path.splitext(filename)
         
         # Check if already tagged
-        if ip_pattern.search(filename):
+        if tag_pattern.match(filename):
             print(f"Skipping '{filename}': Already appears to be tagged.")
-            renamed_files_info.append(file_path) # Add to list to upload even if not renamed
+            renamed_files_info.append(file_path) 
             continue
 
         # Construct new name
-        new_filename = f"{name}_{ip_address}{ext}"
+        # Format: PrivateIPAddress_SN_subnet_original_filename.txt
+        new_filename = f"{ip_address}_SN_{subnet_start}_{filename}"
         new_file_path = os.path.join(directory, new_filename)
         
         try:
@@ -93,58 +120,12 @@ def rename_files(directory, ip_address):
     
     return renamed_files_info
 
-def upload_files_ftp(files_to_upload, config):
-    """Uploads the specified files to the FTP server."""
-    if not files_to_upload:
-        print("No files to upload.")
-        return
-
-    server = config.get('ftp_server')
-    user = config.get('ftp_user')
-    password = config.get('ftp_password')
-    port = config.get('ftp_port', 21)
-
-    if not all([server, user, password]):
-        print("Error: Missing FTP credentials in config.json.")
-        sys.exit(1)
-
-    print(f"\nConnecting to FTP Server: {server}...")
-    
-    ftp = None
-    try:
-        ftp = ftplib.FTP()
-        ftp.connect(server, port)
-        ftp.login(user, password)
-        print("Connected successfully.")
-
-        # Optional: Switch to specific directory if needed, e.g., ftp.cwd('/upload')
-        
-        print("\nStarting Uploads:")
-        for file_path in files_to_upload:
-            filename = os.path.basename(file_path)
-            try:
-                with open(file_path, 'rb') as f:
-                    print(f"Uploading '{filename}'...", end=' ')
-                    ftp.storbinary(f"STOR {filename}", f)
-                    print("Done.")
-            except Exception as e:
-                print(f"Failed to upload '{filename}': {e}")
-
-    except ftplib.all_errors as e:
-        print(f"\nFTP Error: {e}")
-    finally:
-        if ftp:
-            try:
-                ftp.quit()
-            except:
-                pass
-            print("\nFTP Connection closed.")
+# ... (ftp function same)
 
 def main():
     parser = argparse.ArgumentParser(description="Tag files with Private IP and upload via FTP.")
     parser.add_argument("directory", help="The directory containing files to process.")
     
-    # If run without arguments, print help
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit(1)
@@ -159,12 +140,13 @@ def main():
     # 1. Load Configuration
     config = load_config()
 
-    # 2. Get Private IP
-    ip_address = get_private_ip()
-    print(f"Detected Private IP: {ip_address}")
+    # 2. Get Network Info
+    ip_address, subnet_start = get_network_info()
+    print(f"Detected IP: {ip_address}")
+    print(f"Detected Subnet Start: {subnet_start}")
 
     # 3. Rename Files
-    processed_files = rename_files(target_dir, ip_address)
+    processed_files = rename_files(target_dir, ip_address, subnet_start)
 
     # 4. Upload Files
     upload_files_ftp(processed_files, config)

@@ -72,8 +72,12 @@ python sync_and_upload.py "\$TARGET_SCAN_DIR"
 
 echo ""
 echo "================================="
-echo "Done. Press Enter to close."
+echo "Done. Press Enter to close and return to Home Screen."
 read
+
+# Return to Android Home Screen
+am start -a android.intent.action.MAIN -c android.intent.category.HOME > /dev/null 2>&1
+exit
 EOF
 
 # Make executable

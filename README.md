@@ -175,3 +175,7 @@ By default, the widget is named `ZebraSync`. To change it to something custom li
     *   This happens if you use a `.local` domain (like `server.local`) and the scanner's Android version doesn't support mDNS.
     *   **Fix**: Use the **IP Address** of the server instead (e.g., `192.168.1.50`).
     *   Ask your IT admin for the static IP of the server.
+- **FTP Timeout Error**:
+    *   **Firewall**: The server might be blocking the connection. Ask IT to allow the scanner's IP or subnet.
+    *   **Passive Mode**: Python uses Passive Mode by default. If your server requires Active Mode, IT needs to open the passive port range on the server side.
+    *   **Wi-Fi Strength**: Weak signal can cause timeouts during large uploads. Verify signal strength.
