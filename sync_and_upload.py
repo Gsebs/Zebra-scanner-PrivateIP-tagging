@@ -68,8 +68,18 @@ def get_network_info():
                 break
     except Exception as e:
         print(f"Warning: Could not determine subnet mask details: {e}")
-        # Continue with "Unknown" if needed, or handle differently
-        
+    
+    # Fallback if unknown: Assume standard class C (/24) if possible
+    if subnet_start == "Unknown" and local_ip != "Unknown":
+        try:
+            # Simple assumption: 192.168.1.55 -> 192.168.1.0
+            parts = local_ip.split('.')
+            if len(parts) == 4:
+                subnet_start = f"{parts[0]}.{parts[1]}.{parts[2]}.0"
+                print(f"Notice: Using fallback subnet calculation (Assuming /24): {subnet_start}")
+        except:
+            pass
+
     return local_ip, subnet_start
 
 def get_target_files(directory):
@@ -85,8 +95,8 @@ def rename_files(directory, ip_address, subnet_start):
     Renames files to: {IP}_SN_{Subnet}_{OriginalName}
     """
     # Regex to check if file already starts with IP pattern
-    # Matches: 192.168.1.50_SN_...
-    tag_pattern = re.compile(r'^\d{1,3}(\.\d{1,3}){3}_SN_')
+    # Matches: 192.168.1.50_SN_... OR IP_192.168.1.50_SN_...
+    tag_pattern = re.compile(r'^(IP_)?\d{1,3}(\.\d{1,3}){3}_SN_')
     
     renamed_files_info = []
 
@@ -102,13 +112,20 @@ def rename_files(directory, ip_address, subnet_start):
         
         # Check if already tagged
         if tag_pattern.match(filename):
-            print(f"Skipping '{filename}': Already appears to be tagged.")
-            renamed_files_info.append(file_path) 
-            continue
+            # Special Case: If it was tagged with "Unknown" subnet, and we now KNOW the subnet, let's fix it.
+            if "_SN_Unknown_" in filename and subnet_start != "Unknown":
+                print(f"Retrying '{filename}': Found 'Unknown' subnet tag, updating to '{subnet_start}'...")
+                # We proceed to rename logic below
+                pass 
+            else:
+                print(f"Skipping '{filename}': Already appears to be tagged.")
+                renamed_files_info.append(file_path) 
+                continue
 
         # Construct new name
-        # Format: PrivateIPAddress_SN_subnet_original_filename.txt
-        new_filename = f"{ip_address}_SN_{subnet_start}_{filename}"
+        # Construct new name
+        # Format: IP_PrivateIPAddress_SN_SubnetAddress_original_filename.txt
+        new_filename = f"IP_{ip_address}_SN_{subnet_start}_{filename}"
         new_file_path = os.path.join(directory, new_filename)
         
         try:
@@ -120,7 +137,52 @@ def rename_files(directory, ip_address, subnet_start):
     
     return renamed_files_info
 
-# ... (ftp function same)
+    return local_ip, subnet_start
+
+def upload_files_ftp(files_to_upload, config):
+    """Uploads the specified files to the FTP server."""
+    if not files_to_upload:
+        print("No files to upload.")
+        return
+
+    server = config.get('ftp_server')
+    user = config.get('ftp_user')
+    password = config.get('ftp_password')
+    port = config.get('ftp_port', 21)
+
+    if not all([server, user, password]):
+        print("Error: Missing FTP credentials in config.json.")
+        sys.exit(1)
+
+    print(f"\\nConnecting to FTP Server: {server}...")
+    
+    ftp = None
+    try:
+        ftp = ftplib.FTP()
+        ftp.connect(server, port)
+        ftp.login(user, password)
+        print("Connected successfully.")
+        
+        print("\\nStarting Uploads:")
+        for file_path in files_to_upload:
+            filename = os.path.basename(file_path)
+            try:
+                with open(file_path, 'rb') as f:
+                    print(f"Uploading '{filename}'...", end=' ')
+                    ftp.storbinary(f"STOR {filename}", f)
+                    print("Done.")
+            except Exception as e:
+                print(f"Failed to upload '{filename}': {e}")
+
+    except ftplib.all_errors as e:
+        print(f"\\nFTP Error: {e}")
+    finally:
+        if ftp:
+            try:
+                ftp.quit()
+            except:
+                pass
+            print("\\nFTP Connection closed.")
 
 def main():
     parser = argparse.ArgumentParser(description="Tag files with Private IP and upload via FTP.")
