@@ -100,19 +100,30 @@ Perform these steps once on the device itself.
 
 ---
 
-## 4. Add the Widget (User Guide)
-This is what the daily operator will do.
+## 4. Add the Widgets (User Guide)
+You now have **TWO** widgets available:
 
-1.  Go to the Android Home Screen.
-2.  **Long Press** on an empty space -> Select **Widgets**.
-3.  Scroll down to **Termux:Widget**.
-4.  Drag the widget to the home screen.
-5.  A list will appear. Select **`ZebraSync`**.
+### Widget 1: RFID Transfer
+Used to tag and upload files.
+1.  **Long Press** Home Screen -> Widgets -> **Termux:Widget**.
+2.  Select **`RFID Transfer`**.
+3.  **Flow**:
+    *   It detects your IP and Subnet.
+    *   It identifies the **Store Number** (from the Subnet's 2nd number).
+    *   It asks: *"Is Store Number 345 correct? (y/n)"*.
+        *   **Yes (y)**: Uses 345.
+        *   **No (n)**: You type the correct number manually.
+    *   **No Wi-Fi?**: It forces you to type the Store Number.
+    *   **Result**: Files are renamed to `STORE_345_IP_10.345..._File.txt`.
+    *   **Upload**: Files are uploaded to `/rfidscan/autoscan/inventory`.
+    *   **Cleanup**: Local files are **deleted** after a successful upload.
 
-**Done!** Now, whenever you want to sync:
-1.  Scan your items.
-2.  Tap the **ZebraSync** widget icon.
-3.  A window will pop up, rename the files with the current IP, upload them, and close.
+### Widget 2: Clear Inventory
+Used to **EMPTY** the scan folder.
+1.  Add another **Termux:Widget** to the screen.
+2.  Select **`Clear Inventory`**.
+3.  It will prompt: *"Are you sure?"*
+4.  If you type `y`, it **PERMANENTLY DELETES** all files in the folder.
 
 ---
 

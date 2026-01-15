@@ -40,14 +40,14 @@ else
     exit 1
 fi
 
-# 5. Create Widget Shortcut
-echo "[*] Creating Home Screen Widget Shortcut..."
+# 5. Create Widget Shortcuts
+echo "[*] Creating Home Screen Widget Shortcuts..."
 mkdir -p "$SHORTCUT_DIR"
 
-# Write the launcher script
-cat <<EOF > "$SHORTCUT_SCRIPT"
+# --- WIDGET 1: RFID Transfer (Sync) ---
+SYNC_SHORTCUT="$SHORTCUT_DIR/RFID Transfer.sh"
+cat <<EOF > "$SYNC_SHORTCUT"
 #!/data/data/com.termux/files/usr/bin/bash
-# Enable access to shared storage
 # Enable access to shared storage (Already done in setup, but kept commented just in case)
 # termux-setup-storage
 
@@ -61,13 +61,13 @@ echo "================================="
 # Navigate to script folder
 cd "$INSTALL_DIR"
 
-# Run the python script
-# Change '/sdcard/ScanDocuments' to your actual target directory
+# CHANGE THIS IF YOUR SCAN FOLDER IS DIFFERENT
 TARGET_SCAN_DIR="/sdcard/Inventory" 
 
 echo "[*] Target Directory: \$TARGET_SCAN_DIR"
 echo "[*] Running Sync..."
 
+# Run without arguments first, script handles interaction
 python sync_and_upload.py "\$TARGET_SCAN_DIR"
 
 echo ""
@@ -80,11 +80,41 @@ am start -a android.intent.action.MAIN -c android.intent.category.HOME > /dev/nu
 exit
 EOF
 
+# --- WIDGET 2: Clear Inventory (Reset) ---
+RESET_SHORTCUT="$SHORTCUT_DIR/Clear Inventory.sh"
+cat <<EOF > "$RESET_SHORTCUT"
+#!/data/data/com.termux/files/usr/bin/bash
+
+clear
+echo "================================="
+echo "   CLEAR INVENTORY"
+echo "================================="
+echo "This will DELETE ALL FILES in the inventory folder."
+
+cd "$INSTALL_DIR"
+TARGET_SCAN_DIR="/sdcard/Inventory" 
+
+echo "[*] Directory: \$TARGET_SCAN_DIR"
+echo "[*] Cleaning up..."
+
+python sync_and_upload.py "\$TARGET_SCAN_DIR" --action reset
+
+echo ""
+echo "================================="
+echo "Done. Press Enter to return."
+read
+
+am start -a android.intent.action.MAIN -c android.intent.category.HOME > /dev/null 2>&1
+exit
+EOF
+
 # Make executable
-chmod +x "$SHORTCUT_SCRIPT"
+chmod +x "$SYNC_SHORTCUT"
+chmod +x "$RESET_SHORTCUT"
 chmod +x "$INSTALL_DIR/sync_and_upload.py"
 
-echo "    -> Shortcut created at $SHORTCUT_SCRIPT"
+echo "    -> Shortcut 1 created: $SYNC_SHORTCUT"
+echo "    -> Shortcut 2 created: $RESET_SHORTCUT"
 
 echo ""
 echo "=========================================="
@@ -93,7 +123,6 @@ echo "=========================================="
 echo "Instructions:"
 echo "1. Go to your Android Home Screen."
 echo "2. LONG PRESS on empty space -> Widgets."
-echo "3. Find 'Termux:Widget' and drag it to the screen."
-echo "4. You should see 'RFID Transfer' in the list."
-echo "5. Tap it to test!"
+echo "3. Add 'Termux:Widget' -> Select 'RFID Transfer'."
+echo "4. Add 'Termux:Widget' -> Select 'Clear Inventory'."
 echo "=========================================="
