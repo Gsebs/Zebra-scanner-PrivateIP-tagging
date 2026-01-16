@@ -209,7 +209,7 @@ def reset_inventory(directory):
 
 def upload_files_ftp(files_to_upload, config):
     """
-    Uploads files to rfidscan/autoscan/inventory.
+    Uploads files to rfidscan/autoscan.
     DELETES local file after successful upload.
     """
     if not files_to_upload:
@@ -235,7 +235,7 @@ def upload_files_ftp(files_to_upload, config):
         print("Connected successfully.")
         
         # Navigate Directories
-        target_path = "/rfidscan/autoscan/inventory"
+        target_path = "/rfidscan/autoscan"
         try:
             # Try full path first
             ftp.cwd(target_path)
@@ -245,7 +245,7 @@ def upload_files_ftp(files_to_upload, config):
              # For production safety we usually assume path exists or handle creation.
              # Let's try standard walk down for robustness
              ftp.cwd("/") 
-             for folder in ["rfidscan", "autoscan", "inventory"]:
+             for folder in ["rfidscan", "autoscan"]:
                  try: 
                      ftp.cwd(folder)
                  except: 
