@@ -33,24 +33,28 @@ echo "      $(date)"
 echo "=============================================="
 
 # -----------------------------------------------------------------------------
-# 1. Storage permission. As of the Android 14 fix, the deploy script invokes
-#    termux-setup-storage BEFORE this script runs to avoid the chicken-and-egg
-#    permission denied error. That step generates the popup. This step is left
-#    in just to verify the symlink creation.
+# 1. Storage permission. The deploy wrapper (_deploy_wrapper.sh) handles the
+#    initial permission request. This step just verifies storage is accessible.
+#    If it's already set up, we skip termux-setup-storage entirely to avoid
+#    the interactive "Do you want to continue? (y/n)" prompt.
 # -----------------------------------------------------------------------------
 echo "[1/5] Verifying storage access..."
-termux-setup-storage
-
-WAIT=0
-while [ ! -d "$HOME/storage/shared" ] && [ "$WAIT" -lt 60 ]; do
-    sleep 2
-    WAIT=$((WAIT + 2))
-done
-if [ ! -d "$HOME/storage/shared" ]; then
-    echo "ERROR: storage permission was not granted within 60s."
-    echo "       Tap Allow on the popup and re-run the deploy script."
-    write_status "FAIL: storage permission not granted"
-    exit 1
+if [ -d "$HOME/storage/shared" ]; then
+    echo "      Storage already configured."
+else
+    echo "      Requesting storage permission..."
+    termux-setup-storage
+    WAIT=0
+    while [ ! -d "$HOME/storage/shared" ] && [ "$WAIT" -lt 60 ]; do
+        sleep 2
+        WAIT=$((WAIT + 2))
+    done
+    if [ ! -d "$HOME/storage/shared" ]; then
+        echo "ERROR: storage permission was not granted within 60s."
+        echo "       Tap Allow on the popup and re-run the deploy script."
+        write_status "FAIL: storage permission not granted"
+        exit 1
+    fi
 fi
 echo "      OK"
 

@@ -129,16 +129,6 @@ fi
 ok
 
 
-# ---------- 3.5 Cleanup bad Android 14 storage state ----------
-# If a previous run tried to grant permissions silently via `pm grant`,
-# Android 14 can get stuck in a "half-granted" state where termux-setup-storage
-# won't prompt the user, but access is still secretly denied by the OS.
-# Revoking it via ADB fails on some OEMs. The ONLY reliable way to clear the
-# broken permission cache is to do a full clear of the Termux app data.
-log "Step 3.5/6: Fully resetting Termux to clear broken permissions..."
-adb shell pm clear com.termux >/dev/null 2>&1 || true
-ok
-
 # ---------- 4. Push project files ----------
 log "Step 4/6: Pushing project files..."
 
@@ -157,6 +147,13 @@ for f in "${SOURCE_FILES[@]}"; do
 done
 # Wipe any stale sentinel from a previous run before we kick off bootstrap.
 adb shell rm -f "$SENTINEL" >/dev/null 2>&1
+
+# Push the deploy wrapper to /data/local/tmp/. This is the script Termux
+# will actually execute first. It lives outside /sdcard so Termux can read
+# it WITHOUT storage permission (breaking the chicken-and-egg cycle).
+[ -f "_deploy_wrapper.sh" ] || fail "Missing file: _deploy_wrapper.sh"
+adb push "_deploy_wrapper.sh" "/data/local/tmp/_deploy_wrapper.sh" >/dev/null || fail "Push failed: _deploy_wrapper.sh"
+adb shell chmod 755 /data/local/tmp/_deploy_wrapper.sh >/dev/null 2>&1
 ok
 
 # ---------- 5. Launch Termux + run bootstrap ----------
@@ -166,10 +163,9 @@ cat <<'EOF'
     -------------------------------------------------------------
     LOOK AT THE SCANNER NOW.
 
-    Termux is being launched. An Android storage-permission
-    popup will appear - TAP "ALLOW" on the scanner.
-    (This is unavoidable on Android 14 and only needed once
-     per scanner.)
+    Termux is being launched. A storage-permission popup
+    may appear - TAP "ALLOW" on the scanner if it does.
+    (Only needed once per scanner.)
     -------------------------------------------------------------
 
 EOF
@@ -181,15 +177,15 @@ adb shell am force-stop com.termux >/dev/null 2>&1 || true
 sleep 1
 adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
 adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-# Because we pm cleared Termux, it will perform "Installing bootstrap packages..."
-# on launch. We must give it ~25 seconds to finish before we start typing,
-# otherwise the injected command gets swallowed before Termux is ready.
-log "    Waiting 25 seconds for Termux to extract its bootstrap packages..."
-sleep 25
+# Give Termux time to fully start and show the $ prompt.
+sleep 5
 
-# Type the bootstrap command. Note: `input text` interprets %s as space;
-# our path has no other special characters so this is safe.
-adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" >/dev/null
+# Type ONLY a simple, safe command - no special chars (;, >, &, !).
+# Previous attempts used a complex one-liner that the Android shell inside
+# `adb shell` interpreted as multiple commands, silently eating everything
+# after the first semicolon. The wrapper script in /data/local/tmp/ has
+# the real logic.
+adb shell input text "bash%s/data/local/tmp/_deploy_wrapper.sh" >/dev/null
 adb shell input keyevent 66 >/dev/null   # 66 = ENTER
 
 # ---------- 6. Wait for sentinel ----------

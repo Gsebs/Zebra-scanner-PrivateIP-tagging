@@ -143,15 +143,7 @@ if ($needTermux -or $needWidget) {
 }
 Write-Ok
 
-# ---------- 3.5 Cleanup bad Android 14 storage state ----------
-# If a previous run tried to grant permissions silently via `pm grant`,
-# Android 14 can get stuck in a "half-granted" state where termux-setup-storage
-# won't prompt the user, but access is still secretly denied by the OS.
-# Revoking it via ADB fails on some OEMs. The ONLY reliable way to clear the
-# broken permission cache is to do a full clear of the Termux app data.
-Write-Log "Step 3.5/6: Fully resetting Termux to clear broken permissions..."
-& adb shell pm clear com.termux 2>&1 | Out-Null
-Write-Ok
+
 
 # ---------- 4. Push project files ----------
 Write-Log "Step 4/6: Pushing project files..."
@@ -175,6 +167,14 @@ foreach ($f in $SOURCE_FILES) {
     if ($LASTEXITCODE -ne 0) { Write-Fail "Push failed: $f" }
 }
 & adb shell rm -f $SENTINEL 2>&1 | Out-Null
+
+# Push the deploy wrapper to /data/local/tmp/. This is the script Termux
+# will actually execute first. It lives outside /sdcard so Termux can read
+# it WITHOUT storage permission (breaking the chicken-and-egg cycle).
+if (-not (Test-Path "_deploy_wrapper.sh")) { Write-Fail "Missing file: _deploy_wrapper.sh" }
+& adb push "_deploy_wrapper.sh" "/data/local/tmp/_deploy_wrapper.sh" 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) { Write-Fail "Push failed: _deploy_wrapper.sh" }
+& adb shell chmod 755 /data/local/tmp/_deploy_wrapper.sh 2>&1 | Out-Null
 Write-Ok
 
 # ---------- 5. Launch Termux + run bootstrap ----------
@@ -183,9 +183,9 @@ Write-Host ""
 Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
 Write-Host "    LOOK AT THE SCANNER NOW."                               -ForegroundColor Yellow
 Write-Host ""                                                            -ForegroundColor Yellow
-Write-Host "    Termux is being launched. An Android storage-permission" -ForegroundColor Yellow
-Write-Host "    popup will appear - TAP 'ALLOW' on the scanner."         -ForegroundColor Yellow
-Write-Host "    (Unavoidable on Android 14, only needed once per scanner.)" -ForegroundColor Yellow
+Write-Host "    Termux is being launched. A storage-permission popup"    -ForegroundColor Yellow
+Write-Host "    may appear - TAP 'ALLOW' on the scanner if it does."     -ForegroundColor Yellow
+Write-Host "    (Only needed once per scanner.)"                          -ForegroundColor Yellow
 Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
 Write-Host ""
 
@@ -194,13 +194,15 @@ Start-Sleep -Seconds 1
 & adb shell input keyevent KEYCODE_WAKEUP 2>&1 | Out-Null
 # monkey is noisy on stderr ("args: [...]") even on success - must merge streams.
 & adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
-# Because we pm cleared Termux, it will perform "Installing bootstrap packages..."
-# on launch. We must give it ~25 seconds to finish before we start typing,
-# otherwise the injected command gets swallowed before Termux is ready.
-Write-Host "    Waiting 25 seconds for Termux to extract its bootstrap packages..." -ForegroundColor Yellow
-Start-Sleep -Seconds 25
+# Give Termux time to fully start and show the $ prompt.
+Start-Sleep -Seconds 5
 
-& adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
+# Type ONLY a simple, safe command — no special chars (;, >, &, !).
+# Previous attempts used a complex one-liner that the Android shell inside
+# `adb shell` interpreted as multiple commands, silently eating everything
+# after the first semicolon. The wrapper script in /data/local/tmp/ has
+# the real logic.
+& adb shell input text "bash%s/data/local/tmp/_deploy_wrapper.sh" 2>&1 | Out-Null
 & adb shell input keyevent 66 2>&1 | Out-Null
 
 # ---------- 6. Wait for sentinel ----------
