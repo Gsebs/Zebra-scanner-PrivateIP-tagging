@@ -223,6 +223,18 @@ if [[ "$STATUS" != OK* ]]; then
 fi
 ok
 
+# ---------- Restart Termux so Widget can access $PREFIX ----------
+# After bootstrap (especially after a previous pm clear), Termux:Widget needs
+# Termux to have been cleanly launched at least once. We restart it here so
+# the user never hits the "$PREFIX directory not accessible" error.
+log "Finalizing Termux (restarting for Widget compatibility)..."
+adb shell am force-stop com.termux >/dev/null 2>&1 || true
+sleep 2
+adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+sleep 5
+adb shell am force-stop com.termux >/dev/null 2>&1 || true
+ok
+
 # ---------- All done ----------
 echo ""
 echo "=============================================="

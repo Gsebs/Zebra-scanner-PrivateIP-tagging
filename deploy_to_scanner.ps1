@@ -243,6 +243,18 @@ if ($status -notlike "OK*") {
 }
 Write-Ok
 
+# ---------- Restart Termux so Widget can access $PREFIX ----------
+# After bootstrap (especially after a previous pm clear), Termux:Widget needs
+# Termux to have been cleanly launched at least once. We restart it here so
+# the user never hits the "$PREFIX directory not accessible" error.
+Write-Log "Finalizing Termux (restarting for Widget compatibility)..."
+& adb shell am force-stop com.termux 2>&1 | Out-Null
+Start-Sleep -Seconds 2
+& adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
+Start-Sleep -Seconds 5
+& adb shell am force-stop com.termux 2>&1 | Out-Null
+Write-Ok
+
 # ---------- All done ----------
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Green
