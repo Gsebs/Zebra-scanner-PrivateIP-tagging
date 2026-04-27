@@ -1,63 +1,85 @@
-import os
-import socket
-import sys
-import json
-import ftplib
-import re
+"""
+Zebra MC33 — IP tagger and FTP uploader.
+
+Run modes:
+    python sync_and_upload.py                  # uses scan_dir from config.json
+    python sync_and_upload.py /sdcard/Custom   # explicit override
+    python sync_and_upload.py --action reset   # delete everything in scan_dir
+
+The widget shortcuts on the scanner call this with no positional argument,
+so scan_dir is read from config.json — that's the single source of truth.
+"""
+
 import argparse
+import ftplib
+import ipaddress
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
 
-# --- Configuration ---
-CONFIG_FILE = 'config.json'
+# ----- Defaults (only used if config.json omits the fields) -----
+CONFIG_FILE = "config.json"
+DEFAULT_FTP_TARGET = "/rfidscan/autoscan/inventory"
+DEFAULT_SCAN_DIR = "/sdcard/Inventory"
 
+# Files that are already tagged start with "STORE_". We won't re-tag them.
+TAG_PATTERN = re.compile(r"^STORE_")
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
 def load_config():
-    """Loads FTP credentials from config.json."""
+    """Load config.json from the same directory as this script."""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, CONFIG_FILE)
-    
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path, "r") as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"Error: Configuration file '{CONFIG_FILE}' not found at {config_path}.")
-        print("Please ensure config.json is in the same directory as this script.")
+        print(f"Error: '{CONFIG_FILE}' not found at {config_path}.")
+        print("Copy config_example.json to config.json and fill it in.")
         sys.exit(1)
-    except json.JSONDecodeError:
-        print(f"Error: Failed to parse '{CONFIG_FILE}'. Please check the JSON syntax.")
+    except json.JSONDecodeError as e:
+        print(f"Error: '{CONFIG_FILE}' is not valid JSON. Details: {e}")
         sys.exit(1)
 
-import ipaddress
-import subprocess
 
-# ... (Previous config load code remains same, included implicitly or handled by diff)
-
-# ... imports remain same ...
-
+# ---------------------------------------------------------------------------
+# Network detection
+# ---------------------------------------------------------------------------
 def get_network_info():
     """
-    Retrieves the device's Private IP and the Network Address (Subnet start).
-    Returns tuple: (ip_address, subnet_network_address)
+    Return (ip_address, subnet_network_address).
+    Returns ("Unknown", "Unknown") if there's no Wi-Fi connectivity.
     """
-    # 1. Get IP using socket trick
+    # IP via the standard "open a UDP socket to a public address" trick.
+    # No packets are actually sent — we just ask the kernel which interface
+    # would be used, then read its source IP.
     local_ip = "Unknown"
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
-    except Exception as e:
-        # No Wi-Fi connection
+    except Exception:
         return "Unknown", "Unknown"
 
-    # 2. Get Subnet Network Address
+    # Subnet network address — parse `ip -4 addr show` for the interface
+    # that owns local_ip, then compute the network address.
     subnet_start = "Unknown"
-    
     try:
-        output = subprocess.check_output("ip -4 addr show", shell=True).decode()
+        output = subprocess.check_output(
+            ["ip", "-4", "addr", "show"], stderr=subprocess.DEVNULL
+        ).decode()
         for line in output.splitlines():
             if local_ip in line:
-                parts = line.split()
-                for part in parts:
-                    if '/' in part and part.startswith(local_ip):
+                for part in line.split():
+                    if "/" in part and part.startswith(local_ip):
                         iface = ipaddress.IPv4Interface(part)
                         subnet_start = str(iface.network.network_address)
                         break
@@ -65,265 +87,261 @@ def get_network_info():
                 break
     except Exception:
         pass
-    
-    # Fallback
+
+    # Fallback: assume /24 if `ip` wasn't available or didn't match.
     if subnet_start == "Unknown" and local_ip != "Unknown":
-        try:
-            parts = local_ip.split('.')
-            if len(parts) == 4:
-                subnet_start = f"{parts[0]}.{parts[1]}.{parts[2]}.0"
-        except:
-            pass
+        parts = local_ip.split(".")
+        if len(parts) == 4:
+            subnet_start = f"{parts[0]}.{parts[1]}.{parts[2]}.0"
 
     return local_ip, subnet_start
 
-def get_store_number(subnet_start, ip_address):
+
+# ---------------------------------------------------------------------------
+# Store-number prompt
+# ---------------------------------------------------------------------------
+def prompt_store_number(subnet_start, ip_address):
     """
-    Extracts Store Number from Subnet (2nd octet).
-    INTERACTIVE: Asks user to confirm.
+    Confirm or override the store number (the 2nd octet of the subnet).
+    Example: subnet 10.345.33.0  ->  store 345.
+
+    No Wi-Fi  ->  user must type the store number manually.
+    Wi-Fi OK  ->  ask y/n; on 'n' the user types it manually.
     """
-    proposed_store = None
-    
-    # Try to extract from Subnet
+    proposed = None
     if subnet_start != "Unknown":
-        try:
-            # Subnet format: 10.345.33.0 -> Store is 345 (index 1)
-            parts = subnet_start.split('.')
-            if len(parts) == 4:
-                proposed_store = parts[1]
-        except:
-            pass
+        parts = subnet_start.split(".")
+        if len(parts) == 4 and parts[1].isdigit():
+            proposed = parts[1]
 
-    print("\\nConfiguration Check:")
+    print("\nNetwork status:")
     if ip_address == "Unknown":
-        print("Status: [!] NO WIFI CONNECTION DETECTED")
-        print("Action: You must enter the Store Number manually.")
-        proposed_store = None
+        print("  [!] NO WI-FI CONNECTION DETECTED")
+        print("      You must enter the Store Number manually.")
+        proposed = None
     else:
-        print(f"Status: Wi-Fi Connected (IP: {ip_address})")
-        print(f"Subnet: {subnet_start}")
-        
-    final_store = ""
-    
-    if proposed_store:
-        while True:
-            response = input(f"\\nIs Store Number '{proposed_store}' correct? (y/n): ").strip().lower()
-            if response == 'y':
-                final_store = proposed_store
-                break
-            elif response == 'n':
-                final_store = input("Enter the correct Store Number: ").strip()
-                if final_store:
-                    break
-            else:
-                print("Please answer 'y' or 'n'.")
-    else:
-        while not final_store:
-            final_store = input("\\nPlease enter the Store Number: ").strip()
-            
-    print(f"\\n-> Using Store Number: {final_store}")
-    return final_store
+        print(f"  IP:     {ip_address}")
+        print(f"  Subnet: {subnet_start}")
 
-def get_target_files(directory):
-    """Returns a list of files in the directory, excluding hidden files."""
-    try:
-        if not os.path.isdir(directory):
-             print(f"Error: Directory '{directory}' does not exist.")
-             return []
-        return [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f)) and not f.startswith('.')]
-    except OSError as e:
-        print(f"Error: Could not access directory '{directory}'. Details: {e}")
+    final = ""
+    if proposed:
+        while True:
+            ans = input(f"\nIs Store Number '{proposed}' correct? (y/n): ").strip().lower()
+            if ans == "y":
+                final = proposed
+                break
+            if ans == "n":
+                entry = input("Enter the correct Store Number: ").strip()
+                if entry.isdigit():
+                    final = entry
+                    break
+                print("  Store Number must be digits only.")
+            else:
+                print("  Please answer 'y' or 'n'.")
+    else:
+        while not final:
+            entry = input("\nPlease enter the Store Number: ").strip()
+            if entry.isdigit():
+                final = entry
+            else:
+                print("  Store Number must be digits only.")
+
+    print(f"\n  -> Using Store Number: {final}")
+    return final
+
+
+# ---------------------------------------------------------------------------
+# Filesystem helpers
+# ---------------------------------------------------------------------------
+def list_files(directory):
+    """Return non-hidden regular files in `directory`."""
+    if not os.path.isdir(directory):
+        print(f"Error: directory '{directory}' does not exist.")
         return []
+    try:
+        return [
+            f for f in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, f)) and not f.startswith(".")
+        ]
+    except OSError as e:
+        print(f"Error: cannot access '{directory}': {e}")
+        return []
+
 
 def rename_files(directory, ip_address, store_number):
     """
-    Renames files to: STORE_{Store#}_IP_{IP}_{OriginalName}
+    Rename files to: STORE_{store#}_IP_{ip}_{originalname}
+    Idempotent — files starting with 'STORE_' are skipped.
+    Returns the list of full paths ready for upload.
     """
-    # Regex to prevent re-tagging: match string starting with STORE_...
-    tag_pattern = re.compile(r'^STORE_')
-    
-    renamed_files_info = []
-
-    print(f"\\nScanning directory for renaming: {directory}")
-    files = get_target_files(directory)
-    
+    processed = []
+    print(f"\nScanning: {directory}")
+    files = list_files(directory)
     if not files:
-        print("No files found to process.")
+        print("  (no files to process)")
         return []
 
+    safe_ip = ip_address if ip_address != "Unknown" else "NoWiFi"
+
     for filename in files:
-        file_path = os.path.join(directory, filename)
-        
-        # Checking idempotency
-        if tag_pattern.match(filename):
-            print(f"Skipping '{filename}': Already tagged.")
-            renamed_files_info.append(file_path) 
+        full = os.path.join(directory, filename)
+        if TAG_PATTERN.match(filename):
+            print(f"  Skipping '{filename}' (already tagged).")
+            processed.append(full)
             continue
 
-        # Construct new name
-        # Format: STORE_store#_IP_ipadress_originalfilename.txt
-        safe_ip = ip_address if ip_address != "Unknown" else "NoWiFi"
-        new_filename = f"STORE_{store_number}_IP_{safe_ip}_{filename}"
-        new_file_path = os.path.join(directory, new_filename)
-        
+        new_name = f"STORE_{store_number}_IP_{safe_ip}_{filename}"
+        new_full = os.path.join(directory, new_name)
         try:
-            os.rename(file_path, new_file_path)
-            print(f"Renamed: '{filename}' -> '{new_filename}'")
-            renamed_files_info.append(new_file_path)
+            os.rename(full, new_full)
+            print(f"  Renamed: {filename}  ->  {new_name}")
+            processed.append(new_full)
         except OSError as e:
-            print(f"Error renaming '{filename}': {e}")
-    
-    return renamed_files_info
+            print(f"  [!] Rename failed for '{filename}': {e}")
+
+    return processed
+
 
 def reset_inventory(directory):
-    """
-    DELETES all files in the directory.
-    Used by the 'Clear Inventory' widget.
-    """
-    print(f"\\n--- CLEARING INVENTORY in {directory} ---")
-    files = get_target_files(directory)
-    
+    """Delete every (non-hidden) file in `directory`. Asks y/n first."""
+    print(f"\n--- CLEAR INVENTORY in {directory} ---")
+    files = list_files(directory)
     if not files:
         print("Directory is already empty.")
         return
 
-    print(f"WARNING: This will permanently DELETE {len(files)} files.")
-    
-    confirm = input("Are you sure? (y/n): ").strip().lower()
-    
-    if confirm != 'y':
-        print("Operation cancelled.")
+    print(f"WARNING: this will permanently DELETE {len(files)} file(s).")
+    if input("Are you sure? (y/n): ").strip().lower() != "y":
+        print("Cancelled.")
         return
 
-    count = 0
+    deleted = 0
     for filename in files:
-        file_path = os.path.join(directory, filename)
+        full = os.path.join(directory, filename)
         try:
-            os.remove(file_path)
-            print(f"Deleted: '{filename}'")
-            count += 1
+            os.remove(full)
+            print(f"  Deleted: {filename}")
+            deleted += 1
         except OSError as e:
-            print(f"Error deleting '{filename}': {e}")
-                
-    print(f"Cleanup complete. {count} files deleted.")
+            print(f"  [!] Delete failed for '{filename}': {e}")
+    print(f"\nDone. {deleted} file(s) deleted.")
 
-def upload_files_ftp(files_to_upload, config):
+
+# ---------------------------------------------------------------------------
+# FTP
+# ---------------------------------------------------------------------------
+def ensure_remote_dir(ftp, target_dir):
     """
-    Uploads files to rfidscan/autoscan.
-    DELETES local file after successful upload.
+    Walk `target_dir` one segment at a time, creating any missing folders.
+    Leaves the FTP cwd at target_dir on success.
     """
+    ftp.cwd("/")
+    parts = [p for p in target_dir.strip("/").split("/") if p]
+    for part in parts:
+        try:
+            ftp.cwd(part)
+        except ftplib.error_perm:
+            print(f"  (creating remote folder: {part})")
+            ftp.mkd(part)
+            ftp.cwd(part)
+
+
+def upload_files(files_to_upload, config):
+    """Upload each file, then delete its local copy on success."""
     if not files_to_upload:
-        print("No files to upload.")
+        print("\nNo files to upload.")
         return
 
-    server = config.get('ftp_server')
-    user = config.get('ftp_user')
-    password = config.get('ftp_password')
-    port = config.get('ftp_port', 21)
+    server = config.get("ftp_server")
+    user = config.get("ftp_user")
+    password = config.get("ftp_password")
+    port = int(config.get("ftp_port", 21))
+    target_dir = config.get("ftp_target_dir", DEFAULT_FTP_TARGET)
 
     if not all([server, user, password]):
-        print("Error: Missing FTP credentials in config.json.")
+        print("Error: FTP credentials missing in config.json.")
         return
 
-    print(f"\\nConnecting to FTP Server: {server}...")
-    
+    print(f"\nConnecting to FTP {server}:{port} ...")
     ftp = None
     try:
         ftp = ftplib.FTP()
-        ftp.connect(server, port)
+        ftp.connect(server, port, timeout=30)
         ftp.login(user, password)
-        print("Connected successfully.")
-        
-        # Navigate Directories
-        target_path = "/rfidscan/autoscan"
-        try:
-            # Try full path first
-            ftp.cwd(target_path)
-        except:
-             # Try step by step creation if needed (simplified here for standard path)
-             print(f"Warning: Remote path '{target_path}' might not exist. Attempting verification...")
-             # For production safety we usually assume path exists or handle creation.
-             # Let's try standard walk down for robustness
-             ftp.cwd("/") 
-             for folder in ["rfidscan", "autoscan"]:
-                 try: 
-                     ftp.cwd(folder)
-                 except: 
-                     print(f"Creating remote folder: {folder}")
-                     ftp.mkd(folder)
-                     ftp.cwd(folder)
+        print("Connected.")
 
-        print(f"Upload Target: {ftp.pwd()}")
-        print("\\nStarting Uploads & Cleanup:")
-        
-        for file_path in files_to_upload:
-            filename = os.path.basename(file_path)
+        ensure_remote_dir(ftp, target_dir)
+        print(f"Upload target: {ftp.pwd()}")
+        print("\nUploading:")
+
+        for path in files_to_upload:
+            name = os.path.basename(path)
             try:
-                with open(file_path, 'rb') as f:
-                    print(f"Uploading '{filename}'...", end=' ')
-                    ftp.storbinary(f"STOR {filename}", f)
-                    print("Done.", end=' ')
-                
-                # DELETE after success
-                os.remove(file_path)
-                print("[Deleted Local Copy]")
-                
+                with open(path, "rb") as f:
+                    print(f"  {name} ...", end=" ", flush=True)
+                    ftp.storbinary(f"STOR {name}", f)
+                    print("done.", end=" ")
+                os.remove(path)
+                print("[local copy removed]")
             except Exception as e:
-                print(f"\\n[!] FAILED to upload '{filename}': {e}")
-                print("    (File NOT deleted)")
+                # One file failing shouldn't kill the rest.
+                print(f"\n  [!] FAILED for '{name}': {e}")
+                print("      Local copy kept so you can retry.")
 
     except ftplib.all_errors as e:
-        print(f"\\nFTP Error: {e}")
+        print(f"\nFTP error: {e}")
     finally:
-        if ftp:
+        if ftp is not None:
             try:
                 ftp.quit()
-            except:
+            except Exception:
                 pass
-            print("\\nFTP Connection closed.")
+            print("\nFTP connection closed.")
 
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Zebra Scanner Management Tool")
-    parser.add_argument("directory", help="The directory containing files to process.")
-    parser.add_argument("--action", choices=['sync', 'reset'], default='sync', help="Action to perform: 'sync' (default) or 'reset' (clear names).")
-    
-    if len(sys.argv) == 1:
-        parser.print_help(sys.stderr)
-        sys.exit(1)
-
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        default=None,
+        help="Directory to process. Defaults to scan_dir from config.json.",
+    )
+    parser.add_argument(
+        "--action",
+        choices=["sync", "reset"],
+        default="sync",
+        help="'sync' (default) tags + uploads. 'reset' deletes everything.",
+    )
     args = parser.parse_args()
-    target_dir = args.directory
+
+    config = load_config()
+    target_dir = args.directory or config.get("scan_dir", DEFAULT_SCAN_DIR)
 
     if not os.path.isdir(target_dir):
-        print(f"Error: The directory '{target_dir}' does not exist.")
+        print(f"Error: directory '{target_dir}' does not exist.")
         sys.exit(1)
-        
-    # --- RESET MODE ---
-    if args.action == 'reset':
+
+    if args.action == "reset":
         reset_inventory(target_dir)
         return
 
-    # --- SYNC MODE (Default) ---
-    
-    # 1. Load Configuration
-    config = load_config()
-
-    # 2. Get Network Info & Interactive Store #
+    # --- sync ---
     ip_address, subnet_start = get_network_info()
-    store_number = get_store_number(subnet_start, ip_address)
+    store_number = prompt_store_number(subnet_start, ip_address)
+    processed = rename_files(target_dir, ip_address, store_number)
 
-    # 3. Rename Files
-    processed_files = rename_files(target_dir, ip_address, store_number)
-
-    # 4. Upload & Delete
-    # Only upload if we have files AND we have internet (IP is not Unknown)
     if ip_address != "Unknown":
-        upload_files_ftp(processed_files, config)
+        upload_files(processed, config)
     else:
-        print("\\n[!] No Wi-Fi Connection. Files have been renamed but NOT uploaded.")
-        print("    Please connect to Wi-Fi and run the tool again to upload.")
+        print("\n[!] No Wi-Fi. Files renamed locally but NOT uploaded.")
+        print("    Connect to Wi-Fi and run the widget again to upload.")
 
-    print("\\nProcess Completed.")
+    print("\nProcess complete.")
+
 
 if __name__ == "__main__":
     main()

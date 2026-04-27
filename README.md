@@ -1,192 +1,296 @@
-# Zebra Scanner IP Tagger & FTP Sync
+# Zebra MC33 — IP Tagger & FTP Sync
 
-This project provides a "one-click" solution to tag files on a Zebra MC33 scanner with the device's Private IP address and upload them to an FTP server.
-
-## Features
-- **Auto-IP Detection**: Automatically finds the scanner's Private IP on the current network.
-- **Smart Renaming**: Appends the IP to filenames (e.g., `scan.txt` -> `scan_192.168.1.50.txt`). Prevents double-tagging.
-- **FTP Sync**: Uploads renamed files to your specified FTP server.
-- **One-Click Widget**: Runs directly from the Android home screen via Termux:Widget.
-- **Cross-Platform Deploy**: Easy setup scripts for Mac and Windows.
+A one-tap solution for Zebra MC33 scanners: tags inventory files with the
+scanner's IP and store number, then uploads them to a central FTP server.
+Built so a delivery driver with zero technical experience can run the whole
+flow with a single home-screen widget tap, and an IT person can deploy it to
+a new scanner in about 3 minutes.
 
 ---
 
-## Prerequisites (Scanner Side)
-Before deploying, install these two apps on your Zebra MC33 (via Play Store, F-Droid, or ADB):
+## How it works (1-minute version)
 
-1.  **Termux** (The environment to run the script)
-2.  **Termux:Widget** (To create the home screen shortcut)
-3.  **Termux:API** (Optional, but good to have)
+```
++------------------+        ADB over USB         +-------------------+
+|   Your laptop    |  ---------------------->    |   Zebra MC33      |
+|   (Mac/Windows)  |    deploy_to_scanner        |   scanner         |
++------------------+                              +-------------------+
+                                                          |
+                                                  driver taps widget
+                                                          |
+                                                          v
+                                                   +-------------+
+                                                   | FTP server  |
+                                                   +-------------+
+```
 
-> **Note**: You do *not* need to open or configure them yet. The scripts handles the setup.
+**On the laptop (one-time):** install ADB, download two APKs, fill in
+`config.json`. Done forever.
+
+**On the laptop (per scanner):** plug it in, run one script, walk away.
+~3 minutes per scanner.
+
+**On the scanner (per use):** driver taps the **RFID Transfer** widget.
+Confirms or types the store number. Sees a success message. Returns to home
+screen. Done.
 
 ---
 
-## 1. Setup Configuration
-**IMPORTANT**: You must add your FTP credentials before deploying.
+## What's in this folder
 
-1.  **Duplicate the Template**: Copy `config_example.json` and name it `config.json`.
-    ```bash
-    cp config_example.json config.json
-    ```
-2.  Open `config.json` in a text editor.
-3.  Fill in your `ftp_server`, `ftp_user`, and `ftp_password`.
+| File                       | Who uses it      | What it is                                                     |
+|----------------------------|------------------|----------------------------------------------------------------|
+| `deploy_to_scanner.sh`     | IT (Mac/Linux)   | The one-touch deploy script.                                   |
+| `deploy_to_scanner.bat`    | IT (Windows)     | Double-click to deploy. Calls the PowerShell file below.       |
+| `deploy_to_scanner.ps1`    | (called by .bat) | The actual Windows logic.                                      |
+| `bootstrap_termux.sh`      | (auto-run)       | Runs on the scanner during setup. Don't run by hand.           |
+| `sync_and_upload.py`       | (auto-run)       | The actual tag + upload logic. Runs on the scanner.            |
+| `config_example.json`      | IT               | Template for your FTP credentials.                             |
+| `config.json`              | IT               | Your real credentials. **You** create this. Git-ignored.       |
+| `vendor/`                  | IT               | Where you place the Termux APKs. See `vendor/README.md`.       |
+| `.gitignore`               | -                | Keeps secrets and APKs out of version control.                 |
+
+---
+
+## Part 1 — One-time setup (do this once, ever)
+
+You do this once on the laptop you'll use for all deployments. It does not
+need to be repeated for each scanner.
+
+### 1.1 Install ADB
+
+ADB (Android Debug Bridge) is the cable-side tool that lets your laptop talk
+to the scanner. Without it, none of this works.
+
+**Mac:**
+```bash
+brew install android-platform-tools
+```
+Verify: `adb version`
+
+**Linux:**
+```bash
+sudo apt install adb        # Debian/Ubuntu
+sudo dnf install android-tools   # Fedora
+```
+Verify: `adb version`
+
+**Windows:**
+1. Download Platform Tools: https://developer.android.com/studio/releases/platform-tools
+2. Extract the zip somewhere (suggested: `C:\platform-tools`).
+3. Add that folder to your PATH:
+   - Press Start, type "Edit environment variables", open it.
+   - Click **Environment Variables…**.
+   - In **System variables**, select **Path** → **Edit** → **New** → paste
+     `C:\platform-tools` → OK → OK → OK.
+4. Open a **new** Command Prompt and verify: `adb version`.
+
+### 1.2 Download the Termux APKs
+
+The deploy script auto-installs Termux on each scanner — but it needs the
+APK files in `vendor/`. Read `vendor/README.md` for the two F-Droid links
+(it takes ~30 seconds).
+
+### 1.3 Create your `config.json`
+
+Copy the template:
+
+**Mac/Linux:**
+```bash
+cp config_example.json config.json
+```
+
+**Windows:** copy `config_example.json` to `config.json` in File Explorer.
+
+Open `config.json` in a text editor and fill in your real values:
 
 ```json
 {
-    "ftp_server": "ftp.example.com",  <-- Your FTP Server Name OR IP Address
-    "ftp_user": "admin",            <-- Your Username
-    "ftp_password": "securepass",   <-- Your Password
-    "ftp_port": 21
+    "ftp_server": "192.168.10.50",
+    "ftp_user": "rfid_uploader",
+    "ftp_password": "your_password_here",
+    "ftp_port": 21,
+    "ftp_target_dir": "/rfidscan/autoscan/inventory",
+    "scan_dir": "/sdcard/Inventory"
 }
 ```
 
----
+| Field            | What it is                                                                                |
+|------------------|-------------------------------------------------------------------------------------------|
+| `ftp_server`     | Hostname or IP of the FTP server. Prefer a numeric IP — `.local` mDNS hostnames often fail. |
+| `ftp_user`       | FTP username                                                                              |
+| `ftp_password`   | FTP password                                                                              |
+| `ftp_port`       | FTP port (almost always 21)                                                               |
+| `ftp_target_dir` | The remote folder. Default `/rfidscan/autoscan/inventory`. Missing folders are auto-created. |
+| `scan_dir`       | The folder on the scanner that holds files to be tagged & uploaded. Default `/sdcard/Inventory`. |
 
-## 2. Deploy to Scanner
+> **`config.json` is git-ignored.** Don't commit it. Treat it like a password file.
 
-### A. From Mac / Linux
-1.  **Enable USB Debugging on Scanner** (Critical Step):
-    *   Go to **Settings > About phone**.
-    *   Tap **Build number** 7 times until it says "You are a developer".
-    *   Go back to **Settings > System > Developer options**.
-    *   Turn **ON** `USB debugging`.
-2.  Connect the scanner via USB.
-3.  **Verify Connection**:
-    *   Run `adb devices` in Terminal.
-    *   **Look at the scanner screen!** Tap **"Allow"** (Check "Always allow from this computer").
-    *   Run `adb devices` again. It must say `device` (not `unauthorized`).
-4.  Run the deployment script:
-    ```bash
-    cd /path/to/extracted/folder
-    chmod +x deploy_to_scanner.sh
-    ./deploy_to_scanner.sh
-    ```
+> **Need to change `scan_dir` or `ftp_target_dir` later?** Edit
+> `config.json` once on your laptop, then re-run the deploy script for each
+> scanner. You never edit code.
 
-### B. From Windows
-1.  **Install ADB (One-time setup)**:
-    *   Download [SDK Platform-Tools for Windows](https://developer.android.com/studio/releases/platform-tools).
-    *   Extract the zip file to a folder (e.g., `C:\platform-tools`).
-    *   **Crucial**: Copy `deploy_to_scanner.bat` and all project files INTO that `platform-tools` folder (so they are next to `adb.exe`).
-2.  **Enable USB Debugging on Scanner** (Critical Step):
-    *   Go to **Settings > About phone**.
-    *   Tap **Build number** 7 times.
-    *   Go back to **Settings > System > Developer options**.
-    *   Turn **ON** `USB debugging`.
-3.  Connect the scanner via USB.
-4.  **Run the Script**:
-    *   Open the folder in File Explorer.
-    *   **Double-click** the file named `deploy_to_scanner.bat`.
-    *   A black window will appear and transfer the files. It will pause at the end to show you the result.
-
-> **Success?** You should see "Deployment Files Transferred!" and instructions for the next step.
+That's it for one-time setup. Move on to Part 2.
 
 ---
 
-## 3. Finalize on Scanner
-Perform these steps once on the device itself.
+## Part 2 — Per-scanner setup (~3 min each)
 
-1.  Open the **Termux** app on the scanner.
-2.  The deployment script output gave you a command block. allow file access if prompted.
-3.  Run the bootstrap script by typing (or pasting) (login to Gmail on scanner and send this code snippet to the scanner via email. Then copy the code snippet from the email and paste it into Termux on the scanner):
-    ```bash
-    cp /sdcard/Download/ZebraTag/bootstrap_termux.sh ~/
-    chmod +x ~/bootstrap_termux.sh
-    ./bootstrap_termux.sh
-    ```
-    *(Note: You can type these 3 lines manually if copy-paste is hard).*
+Repeat this for every scanner you want to deploy to.
 
-4.  Wait for it to finish. It will install Python and set up the shortcut.
+### 2.1 Enable USB Debugging on the scanner (one time per scanner)
+
+1. Open **Settings** → **About phone**.
+2. Tap **Build number** seven times. You'll see "You are now a developer."
+3. Go back → **System** → **Developer options**.
+4. Toggle **USB debugging** ON.
+
+### 2.2 Connect & deploy
+
+1. Plug the scanner into your laptop with a USB cable.
+2. **Look at the scanner.** A "Allow USB Debugging?" prompt appears the
+   first time. Tick **"Always allow from this computer"** and tap **Allow**.
+3. Run the deploy script:
+
+   **Mac/Linux:**
+   ```bash
+   chmod +x deploy_to_scanner.sh
+   ./deploy_to_scanner.sh
+   ```
+
+   **Windows:** double-click `deploy_to_scanner.bat`.
+
+4. **Watch the scanner during step 5/6 of the script.** Termux will request
+   storage permission — **TAP "ALLOW"** on the scanner. This is the only
+   manual interaction with the scanner during setup. (Required by Android
+   14's scoped storage rules — there is no way to grant this from the
+   laptop.)
+
+5. Wait. The script runs through 6 steps (~1-3 minutes). It ends with:
+   ```
+   ==============================================
+     Scanner XXXX is ready.
+   ==============================================
+   ```
+
+### 2.3 Add the home-screen widgets (one time per scanner)
+
+After the script prints "Scanner ready", do this on the scanner:
+
+1. Long-press an empty area of the home screen.
+2. Tap **Widgets**.
+3. Find **Termux:Widget**.
+4. Drag **RFID Transfer** onto the home screen.
+5. (Optional but recommended) Drag **Clear Inventory** onto the home screen
+   too.
+
+> Why is this step manual? Android does not let an app place its own widget
+> on the home screen — that has to be a user gesture. It's a 30-second job.
+
+Unplug the scanner. It's ready for the driver.
 
 ---
 
-## 4. Add the Widgets (User Guide)
-You now have **TWO** widgets available:
+## Part 3 — Driver guide
 
-### Widget 1: RFID Transfer
-Used to tag and upload files.
-1.  **Long Press** Home Screen -> Widgets -> **Termux:Widget**.
-2.  Select **`RFID Transfer`**.
-3.  **Flow**:
-    *   It detects your IP and Subnet.
-    *   It identifies the **Store Number** (from the Subnet's 2nd number).
-    *   It asks: *"Is Store Number 345 correct? (y/n)"*.
-        *   **Yes (y)**: Uses 345.
-        *   **No (n)**: You type the correct number manually.
-    *   **No Wi-Fi?**: It forces you to type the Store Number.
-    *   **Result**: Files are renamed to `STORE_345_IP_10.345..._File.txt`.
-    *   **Upload**: Files are uploaded to `/rfidscan/autoscan/inventory`.
-    *   **Cleanup**: Local files are **deleted** after a successful upload.
+Print this paragraph and tape it to the scanner cradle if you want:
 
-### Widget 2: Clear Inventory
-Used to **EMPTY** the scan folder.
-1.  Add another **Termux:Widget** to the screen.
-2.  Select **`Clear Inventory`**.
-3.  It will prompt: *"Are you sure?"*
-4.  If you type `y`, it **PERMANENTLY DELETES** all files in the folder.
+> **To upload your scans:** Tap the **RFID Transfer** widget. The scanner
+> figures out your store number from the Wi-Fi automatically. If the store
+> number it shows is correct, type **y** and press Enter. If it's wrong (or
+> there's no Wi-Fi), type **n** and enter the store number yourself. Wait
+> for "Process complete." Press Enter to return to the home screen.
+>
+> **To wipe the inventory folder:** Tap the **Clear Inventory** widget. It
+> will ask "Are you sure?". Type **y** to confirm.
+
+That's the entire driver-side experience.
 
 ---
 
-## Changing the Target Directory
-By default, the widget scans `/sdcard/TestScanDocument`. If you need to scan a different folder (e.g., for a specific department or scanner), follow these steps:
+## Updating an already-deployed scanner
 
-1.  **Edit the Script**:
-    *   Open `bootstrap_termux.sh` on your computer.
-    *   Find the line: `TARGET_SCAN_DIR="/sdcard/TestScanDocument"`
-    *   Change it to your desired path.
-        ```bash
-        TARGET_SCAN_DIR="/sdcard/MyNewScanFolder"
-        ```
+Need to change the FTP server, change the scan folder, or push a code fix
+out to scanners that already have the widget on them?
 
+1. Edit `config.json` (or the relevant code file) on your laptop.
+2. Run the deploy script for each scanner just like Part 2.
 
-2.  **Push the Update (From Computer)**:
-    *   Connect the scanner via USB.
-    *   Run the deployment script again to push the new file:
-    *   **Mac/Linux**:
-        ```bash
-        ./deploy_to_scanner.sh
-        ```
-    *   **Windows**: Double-click `deploy_to_scanner.bat`
+The deploy script is idempotent — re-running on an already-deployed scanner
+just overwrites the files and re-runs the bootstrap. The widget shortcuts
+will use the new config the next time the driver taps them. (You **do not**
+need to remove and re-add the home-screen widget.)
 
-3.  **Apply the Update (On Scanner)**:
-    *   Open the **Termux** app on the scanner.
-    *   Run the installer again to update the widget:
-        ```bash
-        ./bootstrap_termux.sh
-        ```
-    *   **Important**: If it asks "Overwrite?", type `y` and press Enter.
+---
 
-The widget is now updated! You do **not** need to delete or re-add the widget icon; it will automatically use the new path next time you tap it.
+## Security notes
 
+This project uses **plain (unencrypted) FTP**. Be aware:
 
-## Renaming the Widget
-By default, the widget is named `ZebraSync`. To change it to something custom like **"RFID Transfer"**, you have two options:
+- The FTP password and all uploaded file contents travel across your store
+  Wi-Fi as cleartext. Anyone on the same Wi-Fi with a packet sniffer
+  (Wireshark, tcpdump, etc.) can read both.
+- This is acceptable **only if** your store Wi-Fi is fully isolated from
+  guest/customer traffic and you trust everyone on the IT network.
+- **If you control the FTP server, switch it to FTPS (FTP over TLS).**
+  It's a small code change in `sync_and_upload.py` (`ftplib.FTP` →
+  `ftplib.FTP_TLS`) and a server-side config to enable TLS.
 
-### Option A: Edit the source code (Permanent)
-1.  Open `bootstrap_termux.sh` on your computer.
-2.  Find the line: `SHORTCUT_SCRIPT="$SHORTCUT_DIR/ZebraSync.sh"`
-3.  Change it to: `SHORTCUT_SCRIPT="$SHORTCUT_DIR/RFID Transfer.sh"`
-4.  Run the deployment steps again (Redeploy -> Update Widget).
+Other things this project does to limit blast radius:
 
-### Option B: Rename on the Scanner (Quick)
-1.  Open the **Termux** app.
-2.  Type this command to move the file:
-    ```bash
-    mv ~/.shortcuts/ZebraSync.sh "~/.shortcuts/RFID Transfer.sh"
-    ```
-3.  Go to the Home Screen, remove the old widget, and add the new one. Use quotes if there are spaces in the name!
+- `config.json` is `chmod 600` after deployment, so on the scanner only
+  Termux can read the FTP password (other apps can't).
+- `config.json` and `vendor/*.apk` are in `.gitignore` so credentials and
+  vendor binaries never end up in version control.
+- Filenames are constructed from validated inputs only (digits-only store
+  number, IP from the kernel, original filename) — no shell interpolation.
+- The bootstrap is fully non-interactive and writes a sentinel + log file,
+  so partial-success states are visible from the laptop.
+
+---
 
 ## Troubleshooting
-- **"ADB not found"**: Install Android Platform Tools.
-    - Mac: `brew install android-platform-tools`
-    - Windows: [Download here](https://developer.android.com/studio/releases/platform-tools)
-- **Widget shows "Permission Denied"**: Open Termux and run `termux-setup-storage` again, then accept the popup.
-- **Files not uploading**: Check `config.json` for typos in the password or server address. Check if the scanner has Wi-Fi.
-- **FTP Error: "No address associated with hostname"**:
-    *   This happens if you use a `.local` domain (like `server.local`) and the scanner's Android version doesn't support mDNS.
-    *   **Fix**: Use the **IP Address** of the server instead (e.g., `192.168.1.50`).
-    *   Ask your IT admin for the static IP of the server.
-- **FTP Timeout Error**:
-    *   **Firewall**: The server might be blocking the connection. Ask IT to allow the scanner's IP or subnet.
-    *   **Passive Mode**: Python uses Passive Mode by default. If your server requires Active Mode, IT needs to open the passive port range on the server side.
-    *   **Wi-Fi Strength**: Weak signal can cause timeouts during large uploads. Verify signal strength.
+
+| Symptom                                            | Fix                                                                                                                |
+|----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `adb: command not found`                           | Install Platform Tools (Part 1.1).                                                                                 |
+| Windows: `adb` not recognized                      | You added it to PATH but didn't open a new Command Prompt. Open a fresh one.                                       |
+| "No scanner detected"                              | Cable, USB Debugging on (Part 2.1), and "Allow" tapped on the scanner.                                             |
+| "Scanner detected but UNAUTHORIZED"                | Look at the scanner. Tap **Allow** on the USB-debugging prompt. Tick "Always allow from this computer".            |
+| "APKs not found in vendor/"                        | Download Termux + Termux:Widget per `vendor/README.md`.                                                            |
+| "Termux install failed"                            | The Play Store version of Termux is installed (different signing key). Settings → Apps → Termux → Uninstall, then redeploy. |
+| Bootstrap times out after 5 min                    | Storage popup wasn't accepted on the scanner. Watch the scanner during step 5/6 and tap Allow.                     |
+| Bootstrap reports "FAIL: …"                        | `bootstrap.log` is auto-pulled to your laptop's working directory. Open it.                                        |
+| Widget shows "Permission Denied" on the scanner    | Open Termux on the scanner, run `termux-setup-storage`, tap Allow, then tap the widget again.                      |
+| Files renamed but not uploaded                     | No Wi-Fi during the run. Connect to Wi-Fi and tap the widget again — already-renamed files are skipped, not re-tagged. |
+| FTP error: "No address associated with hostname"   | You used a `.local` hostname in `config.json`. Change to a numeric IP.                                             |
+| FTP timeout                                        | Server firewall blocking the scanner's IP, weak Wi-Fi, or the server requires Active mode (Python uses Passive).   |
+| Scanner already has Termux from Play Store         | Settings → Apps → Termux → Uninstall, then redeploy. The F-Droid APK will install cleanly afterward.               |
+
+---
+
+## File-naming convention (reference)
+
+Files in `scan_dir` are renamed to:
+```
+STORE_{store#}_IP_{ip}_{originalfilename}
+```
+
+Examples:
+- `scan_001.txt` → `STORE_345_IP_10.345.33.78_scan_001.txt`
+- `pallet.csv`   → `STORE_345_IP_10.345.33.78_pallet.csv`
+- `STORE_345_IP_10.345.33.78_scan_001.txt` → unchanged (already tagged)
+
+The store number is the second octet of the subnet network address (e.g.,
+subnet `10.345.33.0` → store `345`). The widget asks the user to confirm
+this; if wrong (or no Wi-Fi), the user types it manually.
+
+---
+
+## Scanner Android requirements
+
+- **Android 14:** fully supported. The Termux storage permission popup must
+  be tapped once during setup; everything else is automated.
+- **Android 11–13:** should work the same way. Untested.
+- **Android 10 and below:** likely works. The storage popup may not appear
+  (legacy storage), but the script handles both cases.

@@ -1,128 +1,174 @@
 #!/data/data/com.termux/files/usr/bin/bash
+# -----------------------------------------------------------------------------
+# Zebra MC33 — bootstrap (runs ON the scanner inside Termux).
+#
+# This script is launched by the computer-side deploy script via `adb shell
+# input text`. It must run completely non-interactively.
+#
+# When it finishes (success OR failure) it writes a one-line status to
+# /sdcard/Download/ZebraTag/.bootstrap_done. The deploy script polls for that
+# file to know the work is finished.
+# -----------------------------------------------------------------------------
 
-# Configuration
+set -u
+
 SOURCE_DIR="/sdcard/Download/ZebraTag"
 INSTALL_DIR="$HOME/ZebraTag"
 SHORTCUT_DIR="$HOME/.shortcuts"
-SHORTCUT_SCRIPT="$SHORTCUT_DIR/RFID Transfer.sh"
+SENTINEL="/sdcard/Download/ZebraTag/.bootstrap_done"
+LOG="/sdcard/Download/ZebraTag/bootstrap.log"
 
-echo "=========================================="
-echo "      Zebra Scanner Setup (Termux)"
-echo "=========================================="
+# Reset sentinel + log so we don't read a stale value on rerun
+rm -f "$SENTINEL" "$LOG" 2>/dev/null
 
-# 1. Setup Storage
-echo "[*] Setting up storage access..."
+# Tee everything to the log file. The computer-side deploy script will pull
+# this if anything goes wrong.
+exec > >(tee -a "$LOG") 2>&1
+
+write_status() { echo "$1" > "$SENTINEL"; }
+
+echo "=============================================="
+echo "      Zebra Scanner Bootstrap"
+echo "      $(date)"
+echo "=============================================="
+
+# -----------------------------------------------------------------------------
+# 1. Storage permission. On Android 14 with scoped storage, this triggers a
+#    system permission dialog. The user must tap "Allow" once. We then poll
+#    for the ~/storage symlink which is created by termux-setup-storage AFTER
+#    permission is granted.
+# -----------------------------------------------------------------------------
+echo "[1/5] Requesting storage access..."
+echo "      ** If a permission popup appeared on the scanner, tap ALLOW. **"
 termux-setup-storage
-echo "    -> Please tap 'Allow' on the permission popup if it appears."
-echo "    -> Sleeping for 5 seconds to allow permission propagation..."
-sleep 5
 
-# 2. Install Dependencies
-echo "[*] Installing Python..."
-pkg update -y && pkg install python -y
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to install Python. Check your internet connection."
+WAIT=0
+while [ ! -d "$HOME/storage/shared" ] && [ "$WAIT" -lt 60 ]; do
+    sleep 2
+    WAIT=$((WAIT + 2))
+done
+if [ ! -d "$HOME/storage/shared" ]; then
+    echo "ERROR: storage permission was not granted within 60s."
+    echo "       Tap Allow on the popup and re-run the deploy script."
+    write_status "FAIL: storage permission not granted"
     exit 1
 fi
+echo "      OK"
 
-# 3. Create Install Directory
-echo "[*] Setting up installation folder: $INSTALL_DIR"
+# -----------------------------------------------------------------------------
+# 2. Enable Termux external-app control. After this, future updates can be
+#    pushed by the computer via `am broadcast` instead of input-event hacks.
+# -----------------------------------------------------------------------------
+echo "[2/5] Configuring termux.properties..."
+mkdir -p "$HOME/.termux"
+PROPS="$HOME/.termux/termux.properties"
+touch "$PROPS"
+if ! grep -q "^allow-external-apps" "$PROPS"; then
+    echo "allow-external-apps = true" >> "$PROPS"
+fi
+echo "      OK"
+
+# -----------------------------------------------------------------------------
+# 3. Install Python. `yes |` answers any prompts; `pkg` rarely asks but it
+#    has been known to ask about config files on update.
+# -----------------------------------------------------------------------------
+echo "[3/5] Installing Python (this can take a minute)..."
+yes | pkg update -y >/dev/null 2>&1 || true
+if ! yes | pkg install python -y; then
+    echo "ERROR: pkg install python failed. Check Wi-Fi on the scanner."
+    write_status "FAIL: python install"
+    exit 1
+fi
+if ! command -v python >/dev/null; then
+    echo "ERROR: python not found on PATH after install."
+    write_status "FAIL: python missing"
+    exit 1
+fi
+echo "      OK ($(python --version 2>&1))"
+
+# -----------------------------------------------------------------------------
+# 4. Copy code + config into the install dir. config.json is chmod 600 so
+#    other apps on the device can't read the FTP password.
+# -----------------------------------------------------------------------------
+echo "[4/5] Installing files to $INSTALL_DIR..."
+if [ ! -d "$SOURCE_DIR" ]; then
+    echo "ERROR: source dir '$SOURCE_DIR' missing."
+    echo "       The deploy script should have pushed files here first."
+    write_status "FAIL: source dir missing"
+    exit 1
+fi
 mkdir -p "$INSTALL_DIR"
+cp -f "$SOURCE_DIR/sync_and_upload.py" "$INSTALL_DIR/"
+cp -f "$SOURCE_DIR/config.json"        "$INSTALL_DIR/"
+chmod 600 "$INSTALL_DIR/config.json"
+chmod +x "$INSTALL_DIR/sync_and_upload.py"
+echo "      OK"
 
-# 4. Copy Files
-echo "[*] Copying files..."
-if [ -d "$SOURCE_DIR" ]; then
-    cp "$SOURCE_DIR/sync_and_upload.py" "$INSTALL_DIR/"
-    cp "$SOURCE_DIR/config.json" "$INSTALL_DIR/"
-    echo "    -> Files copied to $INSTALL_DIR"
-else
-    echo "Error: Source directory $SOURCE_DIR not found. Did you run the deploy script from your computer?"
-    exit 1
-fi
-
-# 5. Create Widget Shortcuts
-echo "[*] Creating Home Screen Widget Shortcuts..."
+# -----------------------------------------------------------------------------
+# 5. Create the home-screen widget shortcuts. Termux:Widget reads from
+#    ~/.shortcuts/ and shows every .sh file there as a tappable widget.
+#
+#    Inside the heredoc:
+#      $INSTALL_DIR  -> expanded NOW (so the literal path is baked into the
+#                       shortcut script).
+#      No \$VAR references — we don't need any runtime expansion.
+# -----------------------------------------------------------------------------
+echo "[5/5] Creating widget shortcuts..."
 mkdir -p "$SHORTCUT_DIR"
 
-# --- WIDGET 1: RFID Transfer (Sync) ---
-SYNC_SHORTCUT="$SHORTCUT_DIR/RFID Transfer.sh"
-cat <<EOF > "$SYNC_SHORTCUT"
+# --- RFID Transfer ---
+cat > "$SHORTCUT_DIR/RFID Transfer.sh" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
-# Enable access to shared storage (Already done in setup, but kept commented just in case)
-# termux-setup-storage
-
-# Clear screen for readability
 clear
-
 echo "================================="
-echo "   Zebra Scanner Sync"
+echo "        RFID Transfer"
 echo "================================="
-
-# Navigate to script folder
 cd "$INSTALL_DIR"
-
-# CHANGE THIS IF YOUR SCAN FOLDER IS DIFFERENT
-TARGET_SCAN_DIR="/sdcard/Inventory" 
-
-echo "[*] Target Directory: \$TARGET_SCAN_DIR"
-echo "[*] Running Sync..."
-
-# Run without arguments first, script handles interaction
-python sync_and_upload.py "\$TARGET_SCAN_DIR"
-
-echo ""
+python sync_and_upload.py
+echo
 echo "================================="
-echo "Done. Press Enter to close and return to Home Screen."
-read
-
-# Return to Android Home Screen
-am start -a android.intent.action.MAIN -c android.intent.category.HOME > /dev/null 2>&1
-exit
+echo "Done. Press Enter to return to home screen."
+echo "(Auto-returns in 60 seconds.)"
+read -t 60 -r _ || true
+am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+exit 0
 EOF
 
-# --- WIDGET 2: Clear Inventory (Reset) ---
-RESET_SHORTCUT="$SHORTCUT_DIR/Clear Inventory.sh"
-cat <<EOF > "$RESET_SHORTCUT"
+# --- Clear Inventory ---
+cat > "$SHORTCUT_DIR/Clear Inventory.sh" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
-
 clear
 echo "================================="
-echo "   CLEAR INVENTORY"
+echo "       CLEAR INVENTORY"
 echo "================================="
 echo "This will DELETE ALL FILES in the inventory folder."
-
 cd "$INSTALL_DIR"
-TARGET_SCAN_DIR="/sdcard/Inventory" 
-
-echo "[*] Directory: \$TARGET_SCAN_DIR"
-echo "[*] Cleaning up..."
-
-python sync_and_upload.py "\$TARGET_SCAN_DIR" --action reset
-
-echo ""
+python sync_and_upload.py --action reset
+echo
 echo "================================="
-echo "Done. Press Enter to return."
-read
-
-am start -a android.intent.action.MAIN -c android.intent.category.HOME > /dev/null 2>&1
-exit
+echo "Done. Press Enter to return to home screen."
+echo "(Auto-returns in 60 seconds.)"
+read -t 60 -r _ || true
+am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1
+exit 0
 EOF
 
-# Make executable
-chmod +x "$SYNC_SHORTCUT"
-chmod +x "$RESET_SHORTCUT"
-chmod +x "$INSTALL_DIR/sync_and_upload.py"
+chmod +x "$SHORTCUT_DIR"/*.sh
+echo "      OK"
 
-echo "    -> Shortcut 1 created: $SYNC_SHORTCUT"
-echo "    -> Shortcut 2 created: $RESET_SHORTCUT"
+# -----------------------------------------------------------------------------
+# Done.
+# -----------------------------------------------------------------------------
+write_status "OK"
 
 echo ""
-echo "=========================================="
-echo "Setup Complete!"
-echo "=========================================="
-echo "Instructions:"
-echo "1. Go to your Android Home Screen."
-echo "2. LONG PRESS on empty space -> Widgets."
-echo "3. Add 'Termux:Widget' -> Select 'RFID Transfer'."
-echo "4. Add 'Termux:Widget' -> Select 'Clear Inventory'."
-echo "=========================================="
+echo "=============================================="
+echo "  Bootstrap complete."
+echo "=============================================="
+echo "  On the scanner:"
+echo "    1. Long-press home screen -> Widgets"
+echo "    2. Find 'Termux:Widget'"
+echo "    3. Drag 'RFID Transfer' onto the home screen"
+echo "    4. (Optional) Drag 'Clear Inventory' too"
+echo "=============================================="
+exit 0

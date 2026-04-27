@@ -1,4 +1,17 @@
+# Real credentials -- never commit
 config.json
+
+# Termux APKs are downloaded per-machine, not committed
+vendor/*.apk
+
+# Local logs pulled from scanners during deployment
+bootstrap.log
+*.log
+
+# Python
 __pycache__/
 *.pyc
+
+# OS junk
 .DS_Store
+Thumbs.db
