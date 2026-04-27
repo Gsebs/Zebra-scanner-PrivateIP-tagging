@@ -1,10 +1,8 @@
 # Zebra MC33 — IP Tagger & FTP Sync
 
-A one-tap solution for Zebra MC33 scanners: tags inventory files with the
+Naming System for Zebra MC33 scanners: tags inventory files with the
 scanner's IP and store number, then uploads them to a central FTP server.
-Built so a delivery driver with zero technical experience can run the whole
-flow with a single home-screen widget tap, and an IT person can deploy it to
-a new scanner in about 3 minutes.
+
 
 ---
 
@@ -52,6 +50,8 @@ screen. Done.
 
 ---
 
+#Instructions
+
 ## Part 1 — One-time setup (do this once, ever)
 
 You do this once on the laptop you'll use for all deployments. It does not
@@ -66,14 +66,14 @@ to the scanner. Without it, none of this works.
 ```bash
 brew install android-platform-tools
 ```
-Verify: `adb version`
+Verify by running this in terminal: `adb version`
 
 **Linux:**
 ```bash
 sudo apt install adb        # Debian/Ubuntu
 sudo dnf install android-tools   # Fedora
 ```
-Verify: `adb version`
+Verify by running this in terminal: `adb version`
 
 **Windows:**
 1. Download Platform Tools: https://developer.android.com/studio/releases/platform-tools
