@@ -182,8 +182,10 @@ sleep 1
 adb shell input keyevent KEYCODE_WAKEUP >/dev/null 2>&1 || true
 adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 # Because we pm cleared Termux, it will perform "Installing bootstrap packages..."
-# on launch. We must give it ~8 seconds to finish before we start typing.
-sleep 8
+# on launch. We must give it ~25 seconds to finish before we start typing,
+# otherwise the injected command gets swallowed before Termux is ready.
+log "    Waiting 25 seconds for Termux to extract its bootstrap packages..."
+sleep 25
 
 # Type the bootstrap command. Note: `input text` interprets %s as space;
 # our path has no other special characters so this is safe.

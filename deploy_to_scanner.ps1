@@ -195,8 +195,10 @@ Start-Sleep -Seconds 1
 # monkey is noisy on stderr ("args: [...]") even on success - must merge streams.
 & adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
 # Because we pm cleared Termux, it will perform "Installing bootstrap packages..."
-# on launch. We must give it ~8 seconds to finish before we start typing.
-Start-Sleep -Seconds 8
+# on launch. We must give it ~25 seconds to finish before we start typing,
+# otherwise the injected command gets swallowed before Termux is ready.
+Write-Host "    Waiting 25 seconds for Termux to extract its bootstrap packages..." -ForegroundColor Yellow
+Start-Sleep -Seconds 25
 
 & adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
 & adb shell input keyevent 66 2>&1 | Out-Null
