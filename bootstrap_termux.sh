@@ -126,6 +126,17 @@ clear
 echo "================================="
 echo "        RFID Transfer"
 echo "================================="
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo ""
+    echo "ERROR: Install directory not found."
+    echo "       ($INSTALL_DIR)"
+    echo ""
+    echo "Re-run the deploy script from the computer"
+    echo "to fix this."
+    echo ""
+    read -t 30 -r _ || true
+    exit 1
+fi
 cd "$INSTALL_DIR"
 python sync_and_upload.py
 echo
@@ -144,6 +155,17 @@ clear
 echo "================================="
 echo "       CLEAR INVENTORY"
 echo "================================="
+if [ ! -d "$INSTALL_DIR" ]; then
+    echo ""
+    echo "ERROR: Install directory not found."
+    echo "       ($INSTALL_DIR)"
+    echo ""
+    echo "Re-run the deploy script from the computer"
+    echo "to fix this."
+    echo ""
+    read -t 30 -r _ || true
+    exit 1
+fi
 echo "This will DELETE ALL FILES in the inventory folder."
 cd "$INSTALL_DIR"
 python sync_and_upload.py --action reset

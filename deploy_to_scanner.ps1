@@ -257,16 +257,21 @@ Write-Ok
 
 # ---------- All done ----------
 Write-Host ""
-Write-Host "==============================================" -ForegroundColor Green
-Write-Host "  Scanner $serial is ready."                    -ForegroundColor Green
-Write-Host "==============================================" -ForegroundColor Green
+Write-Host "===============================================" -ForegroundColor Green
+Write-Host "  Scanner $serial is ready!"                     -ForegroundColor Green
+Write-Host "===============================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  ONE last manual step on the scanner (~30 seconds):"
+Write-Host "  ONE last step on the scanner (~30 seconds):" -ForegroundColor Cyan
+Write-Host ""
 Write-Host "    1. Long-press an empty area of the home screen."
 Write-Host "    2. Tap 'Widgets'."
-Write-Host "    3. Find 'Termux:Widget'."
-Write-Host "    4. Drag 'RFID Transfer' onto the home screen."
-Write-Host "    5. (Optional) Drag 'Clear Inventory' too."
+Write-Host "    3. Scroll until you find 'Termux:Widget'."
+Write-Host "       (There may be several sizes - pick the WIDEST one.)"
+Write-Host "    4. Drag it onto the home screen."
+Write-Host "    5. You should see 'RFID Transfer' and 'Clear Inventory'"
+Write-Host "       listed inside the widget. Tap to use them."
+Write-Host ""
+Write-Host "  If the widget shows an error, just re-run this script."
 Write-Host ""
 Write-Host "  Then unplug. Hand the scanner off to the driver."
 Write-Host ""
