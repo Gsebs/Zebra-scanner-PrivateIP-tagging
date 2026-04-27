@@ -147,10 +147,10 @@ Write-Ok
 # If a previous run tried to grant permissions silently via `pm grant`,
 # Android 14 can get stuck in a "half-granted" state where termux-setup-storage
 # won't prompt the user, but access is still secretly denied by the OS.
-# Revoking it forces the permission dialog to appear properly.
-Write-Log "Step 3.5/6: Resetting Termux permission state..."
-& adb shell pm revoke com.termux android.permission.READ_EXTERNAL_STORAGE 2>&1 | Out-Null
-& adb shell pm revoke com.termux android.permission.WRITE_EXTERNAL_STORAGE 2>&1 | Out-Null
+# Revoking it via ADB fails on some OEMs. The ONLY reliable way to clear the
+# broken permission cache is to do a full clear of the Termux app data.
+Write-Log "Step 3.5/6: Fully resetting Termux to clear broken permissions..."
+& adb shell pm clear com.termux 2>&1 | Out-Null
 Write-Ok
 
 # ---------- 4. Push project files ----------
@@ -194,9 +194,11 @@ Start-Sleep -Seconds 1
 & adb shell input keyevent KEYCODE_WAKEUP 2>&1 | Out-Null
 # monkey is noisy on stderr ("args: [...]") even on success - must merge streams.
 & adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
-Start-Sleep -Seconds 4
+# Because we pm cleared Termux, it will perform "Installing bootstrap packages..."
+# on launch. We must give it ~8 seconds to finish before we start typing.
+Start-Sleep -Seconds 8
 
-& adb shell input text "rm%s-rf%s~/storage;%stermux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
+& adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
 & adb shell input keyevent 66 2>&1 | Out-Null
 
 # ---------- 6. Wait for sentinel ----------
