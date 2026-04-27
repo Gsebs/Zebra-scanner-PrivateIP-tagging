@@ -2,7 +2,9 @@
 
 Naming System for Zebra MC33 scanners: tags inventory files with the
 scanner's IP and store number, then uploads them to a central FTP server.
-
+Built so a delivery driver with zero technical experience can run the whole
+flow with a single home-screen widget tap, and an IT person can deploy it to
+a new scanner in about 3 minutes.
 
 ---
 
@@ -49,8 +51,7 @@ screen. Done.
 | `.gitignore`               | -                | Keeps secrets and APKs out of version control.                 |
 
 ---
-
-#Instructions
+# Instructions
 
 ## Part 1 — One-time setup (do this once, ever)
 
@@ -63,41 +64,130 @@ Before doing anything else, you need this entire project folder on your laptop.
 - If you use Git, clone this repository: `git clone <your-repo-url>`
 - If you don't use Git, click the **Code** button at the top of the GitHub page and select **Download ZIP**. Extract the ZIP file to your Desktop or Documents folder. 
 
-All future steps (like running the deploy scripts or placing the APK files) will happen inside this downloaded folder.
-
 ### 1.1 Install ADB
 
 ADB (Android Debug Bridge) is the cable-side tool that lets your laptop talk
 to the scanner. Without it, none of this works.
 
-**Mac:**
+#### Mac
 ```bash
 brew install android-platform-tools
 ```
-Verify by running this in terminal: `adb version`
-
-**Linux:**
+Then, in the same Terminal window, verify it's installed:
 ```bash
-sudo apt install adb        # Debian/Ubuntu
-sudo dnf install android-tools   # Fedora
+adb version
 ```
-Verify by running this in terminal: `adb version`
+You should see something like `Android Debug Bridge version 1.0.41`. If you
+see "command not found", install Homebrew first (https://brew.sh) and try
+again.
 
-**Windows:**
-1. Download Platform Tools: https://developer.android.com/studio/releases/platform-tools
-2. Extract the zip somewhere (suggested: `C:\platform-tools`).
-3. Add that folder to your PATH:
-   - Press Start, type "Edit environment variables", open it.
-   - Click **Environment Variables…**.
-   - In **System variables**, select **Path** → **Edit** → **New** → paste
-     `C:\platform-tools` → OK → OK → OK.
-4. Open a **new** Command Prompt and verify: `adb version`.
+#### Linux
+```bash
+sudo apt install adb              # Debian / Ubuntu / Mint
+sudo dnf install android-tools    # Fedora
+```
+Verify: `adb version`.
+
+#### Windows — pick ONE of these two options
+
+**Option A — Easy, no PATH editing (recommended if you've never edited environment variables):**
+
+1. Open this URL in a browser: **https://developer.android.com/studio/releases/platform-tools**
+2. Scroll down to the "Downloads" section and click **"Download SDK Platform-Tools for Windows"**.
+3. Read and accept the terms. The browser downloads a file called something like `platform-tools-latest-windows.zip`.
+4. Open File Explorer and navigate to the **zebra-tag** folder where you extracted this project.
+5. Move the downloaded zip file into the **zebra-tag** folder.
+6. Right-click the zip file → **Extract All...** → click **Extract**.
+7. After extraction, you should see a new subfolder called `platform-tools` containing files like `adb.exe`, `fastboot.exe`, etc. The folder layout should look like:
+   ```
+   zebra-tag\
+     deploy_to_scanner.bat
+     README.md
+     platform-tools\          <-- the folder you just extracted
+       adb.exe
+       fastboot.exe
+       ...
+   ```
+8. You're done. The deploy script will automatically find `adb.exe` inside this folder. **Skip to step 1.2.**
+
+> Why this works: the deploy script checks for a `platform-tools` subfolder next to itself before falling back to the system PATH. No global setup needed.
+
+**Option B — Standard, edit Windows PATH (if you'll use ADB for other things too):**
+
+1. Open this URL in a browser: **https://developer.android.com/studio/releases/platform-tools**
+2. Click **"Download SDK Platform-Tools for Windows"**, accept terms, save the zip.
+3. Right-click the zip → **Extract All...** → change the destination to `C:\platform-tools` → click **Extract**.
+4. After extraction you should have `C:\platform-tools\adb.exe`. Verify by opening File Explorer and navigating to `C:\platform-tools`.
+5. Now add that folder to your PATH:
+   - Press the **Windows key** (the key with the Windows logo).
+   - Type: `env`
+   - In the search results you'll see two similar-looking entries. Click **"Edit environment variables for your account"** (the one *without* "system" in the name — system requires admin and we don't need that).
+   - The **Environment Variables** window opens. It has two sections: "User variables for [yourname]" on top and "System variables" on the bottom. **Use the top one.**
+   - In the top section, click on the row labeled **Path** (just click it once to select it).
+   - Click the **Edit...** button (NOT "Delete").
+   - A new "Edit environment variable" window opens with a list of paths.
+   - Click **New** (top-right of that window).
+   - A blank line appears. Type or paste: `C:\platform-tools`
+   - Click **OK**.
+   - Click **OK** on the previous window too.
+   - Click **OK** on the System Properties window if it's still open.
+6. **Close any Command Prompt windows you have open.** PATH changes only take effect in NEW terminal windows.
+7. Open a fresh Command Prompt:
+   - Press the **Windows key**, type `cmd`, press Enter.
+8. In the new Command Prompt window, type:
+   ```
+   adb version
+   ```
+   and press Enter.
+9. You should see `Android Debug Bridge version 1.0.41` (or similar). If you see "'adb' is not recognized as an internal or external command", the PATH edit didn't take effect — close all Command Prompts again and open a brand new one. If still failing, use Option A instead.
 
 ### 1.2 Download the Termux APKs
 
 The deploy script auto-installs Termux on each scanner — but it needs the
-APK files in `vendor/`. Read `vendor/README.md` for the two F-Droid links
-(it takes ~30 seconds).
+APK files in the `vendor/` folder. There is also a README in the `vendor/` folder that you can refer to. You're going to download two APKs from
+F-Droid (the official Termux source) and drop them into that folder. This
+takes about 2 minutes.
+
+> **You only need TWO apps**, not three. There are several "Termux:..." apps
+> on F-Droid (Termux:API, Termux:Boot, Termux:Float, etc.) — you do **not**
+> need any of those. We only use **Termux** and **Termux:Widget**.
+
+**Step 1 — Download Termux (the terminal itself):**
+
+1. In your browser, open: **https://f-droid.org/packages/com.termux/**
+2. Scroll down past the description and screenshots until you see a section called **"Versions"**.
+3. The first version listed will be tagged with the word **"suggested"** — that's the stable release we want. (Other versions might be tagged "beta" — skip those.)
+4. Right under the "suggested" version, click the bold **Download APK** link.
+5. The file will download. **Heads up: it's about 110 MB**, so it'll take a moment on slower connections. The filename will look like `com.termux_1002.apk` (the number changes over time — that's fine).
+6. Once downloaded, open File Explorer (Windows) or Finder (Mac), navigate to your Downloads folder, and **move** (or copy) the downloaded `com.termux_*.apk` file into the `vendor/` subfolder of this project.
+
+**Step 2 — Download Termux:Widget (the home-screen shortcut launcher):**
+
+1. In your browser, open: **https://f-droid.org/packages/com.termux.widget/**
+2. Scroll down to the **"Versions"** section.
+3. Click the bold **Download APK** link under the version tagged **"suggested"**.
+4. This file is small — about 6 MB. Filename will look like `com.termux.widget_1001.apk`.
+5. Move (or copy) the downloaded file into the `vendor/` subfolder of this project.
+
+**Step 3 — Verify the `vendor/` folder looks right:**
+
+Open the `vendor/` folder. It should now contain three things:
+```
+vendor/
+  README.md
+  com.termux_1002.apk            (~110 MB — Termux itself)
+  com.termux.widget_1001.apk     (~6 MB — Termux:Widget)
+```
+
+The exact version numbers in the filenames will vary over time. The deploy
+script finds the files by pattern (`com.termux_*.apk` and
+`com.termux.widget_*.apk`), so you don't need to rename them.
+
+> **Why F-Droid and not the Play Store?** The Play Store version of Termux
+> has been unmaintained since 2020 and is broken on newer Android versions.
+> F-Droid is the source the Termux maintainers themselves recommend. If a
+> scanner already has Termux from the Play Store, the deploy script will
+> tell you exactly what to do (uninstall it, then redeploy).
 
 ### 1.3 Create your `config.json`
 
@@ -153,12 +243,70 @@ Repeat this for every scanner you want to deploy to.
 3. Go back → **System** → **Developer options**.
 4. Toggle **USB debugging** ON.
 
-### 2.2 Connect & deploy
+### 2.2 Connect
 
 1. Plug the scanner into your laptop with a USB cable.
 2. **Look at the scanner.** A "Allow USB Debugging?" prompt appears the
    first time. Tick **"Always allow from this computer"** and tap **Allow**.
-3. Run the deploy script:
+
+### 2.3 Verify the connection (do this every time before deploying)
+
+Before running the deploy script, run these three commands in your terminal
+to confirm your laptop is actually talking to the scanner. This takes 10
+seconds and saves you from chasing ghost problems later.
+
+Open a terminal:
+- **Mac:** open Terminal (Cmd+Space, type "terminal", Enter), then `cd` to
+  this project folder.
+- **Windows:** open Command Prompt (Win key, type `cmd`, Enter), then `cd`
+  to this project folder. *(If you used Option A in section 1.1, also run:*
+  `set PATH=%CD%\platform-tools;%PATH%` *first, so the temporary PATH
+  picks up your local platform-tools folder.)*
+- **Linux:** any terminal, `cd` into the project folder.
+
+Then run, in this order:
+
+**Check 1 — is ADB itself working?**
+```
+adb version
+```
+Expected output: a line like `Android Debug Bridge version 1.0.41`.
+If you see "command not found" or "not recognized", revisit section 1.1 —
+ADB isn't installed or isn't on your PATH yet.
+
+**Check 2 — does ADB see the scanner?**
+```
+adb devices
+```
+Expected output:
+```
+List of devices attached
+ABC123XYZ    device
+```
+The serial number will be different. The important word is **`device`** at
+the end of the line.
+
+| What you see                          | What it means                                                         |
+|---------------------------------------|-----------------------------------------------------------------------|
+| `device`                              | ✅ Connected and authorized. Good to go.                              |
+| `unauthorized`                        | Look at the scanner — tap **Allow** on the USB-debugging prompt.       |
+| `offline`                             | Unplug, plug back in. If it persists, try a different USB cable/port. |
+| (empty list, only the header line)    | USB Debugging not enabled, or cable issue. Revisit section 2.1.       |
+
+**Check 3 — is the scanner actually responding to commands?**
+```
+adb shell getprop ro.product.model
+```
+Expected output: the scanner's model name, e.g. `MC330L` or `MC33`. If this
+prints the model, your laptop and the scanner are fully talking. You're
+ready to deploy.
+
+If check 3 hangs or times out, the connection is half-broken — unplug the
+scanner, wait 5 seconds, plug it back in, and run all three checks again.
+
+### 2.4 Run the deploy script
+
+Once the three connection checks above pass:
 
    **Mac/Linux:**
    ```bash
@@ -168,20 +316,20 @@ Repeat this for every scanner you want to deploy to.
 
    **Windows:** double-click `deploy_to_scanner.bat`.
 
-4. **Watch the scanner during step 5/6 of the script.** Termux will request
-   storage permission — **TAP "ALLOW"** on the scanner. This is the only
-   manual interaction with the scanner during setup. (Required by Android
-   14's scoped storage rules — there is no way to grant this from the
-   laptop.)
+**Watch the scanner during step 5/6 of the script.** Termux will request
+storage permission — **TAP "ALLOW"** on the scanner. This is the only
+manual interaction with the scanner during setup. (Required by Android
+14's scoped storage rules — there is no way to grant this from the
+laptop.)
 
-5. Wait. The script runs through 6 steps (~1-3 minutes). It ends with:
-   ```
-   ==============================================
-     Scanner XXXX is ready.
-   ==============================================
-   ```
+Wait. The script runs through 6 steps (~1-3 minutes). It ends with:
+```
+==============================================
+  Scanner XXXX is ready.
+==============================================
+```
 
-### 2.3 Add the home-screen widgets (one time per scanner)
+### 2.5 Add the home-screen widgets (one time per scanner)
 
 After the script prints "Scanner ready", do this on the scanner:
 
