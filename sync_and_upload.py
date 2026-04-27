@@ -325,8 +325,12 @@ def main():
     target_dir = args.directory or config.get("scan_dir", DEFAULT_SCAN_DIR)
 
     if not os.path.isdir(target_dir):
-        print(f"Error: directory '{target_dir}' does not exist.")
-        sys.exit(1)
+        print(f"Scan directory '{target_dir}' does not exist yet - creating it.")
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except OSError as e:
+            print(f"Error: could not create '{target_dir}': {e}")
+            sys.exit(1)
 
     if args.action == "reset":
         reset_inventory(target_dir)
