@@ -33,21 +33,23 @@ echo "      $(date)"
 echo "=============================================="
 
 # -----------------------------------------------------------------------------
-# 1. Storage permission. On Android 14 with scoped storage, this would normally
-#    trigger a system permission dialog. However, the deploy script now grants
-#    permission in advance via ADB, so this step just creates the symlinks.
+# 1. Storage permission. As of the Android 14 fix, the deploy script invokes
+#    termux-setup-storage BEFORE this script runs to avoid the chicken-and-egg
+#    permission denied error. That step generates the popup. This step is left
+#    in just to verify the symlink creation.
 # -----------------------------------------------------------------------------
-echo "[1/5] Setting up storage symlinks..."
+echo "[1/5] Verifying storage access..."
 termux-setup-storage
 
 WAIT=0
-while [ ! -d "$HOME/storage/shared" ] && [ "$WAIT" -lt 20 ]; do
+while [ ! -d "$HOME/storage/shared" ] && [ "$WAIT" -lt 60 ]; do
     sleep 2
     WAIT=$((WAIT + 2))
 done
 if [ ! -d "$HOME/storage/shared" ]; then
-    echo "ERROR: termux-setup-storage failed to create symlinks."
-    write_status "FAIL: storage setup"
+    echo "ERROR: storage permission was not granted within 60s."
+    echo "       Tap Allow on the popup and re-run the deploy script."
+    write_status "FAIL: storage permission not granted"
     exit 1
 fi
 echo "      OK"

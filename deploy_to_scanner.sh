@@ -4,8 +4,8 @@
 #
 # Connect a scanner via USB with USB Debugging on, run this script. The
 # script does everything else, including driving Termux on the scanner via
-# ADB input events. The deployment is now entirely zero-touch (permissions
-# are granted automatically via ADB).
+# ADB input events. The only manual step on the scanner is tapping "Allow"
+# on the storage permission popup (Android 14 requirement - unavoidable).
 # -----------------------------------------------------------------------------
 
 set -u
@@ -163,8 +163,12 @@ log "Step 5/6: Running bootstrap on the scanner..."
 cat <<'EOF'
 
     -------------------------------------------------------------
-    Termux is being launched automatically.
-    (Zero-touch deployment - no manual steps needed on the scanner!)
+    LOOK AT THE SCANNER NOW.
+
+    Termux is being launched. An Android storage-permission
+    popup will appear - TAP "ALLOW" on the scanner.
+    (This is unavoidable on Android 14 and only needed once
+     per scanner.)
     -------------------------------------------------------------
 
 EOF
@@ -180,7 +184,7 @@ sleep 4
 
 # Type the bootstrap command. Note: `input text` interprets %s as space;
 # our path has no other special characters so this is safe.
-adb shell input text "bash%s$DEST_DIR/bootstrap_termux.sh" >/dev/null
+adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" >/dev/null
 adb shell input keyevent 66 >/dev/null   # 66 = ENTER
 
 # ---------- 6. Wait for sentinel ----------
