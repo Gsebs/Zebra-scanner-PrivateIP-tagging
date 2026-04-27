@@ -57,6 +57,14 @@ screen. Done.
 You do this once on the laptop you'll use for all deployments. It does not
 need to be repeated for each scanner.
 
+### 1.0 Download this project to your laptop
+
+Before doing anything else, you need this entire project folder on your laptop. 
+- If you use Git, clone this repository: `git clone <your-repo-url>`
+- If you don't use Git, click the **Code** button at the top of the GitHub page and select **Download ZIP**. Extract the ZIP file to your Desktop or Documents folder. 
+
+All future steps (like running the deploy scripts or placing the APK files) will happen inside this downloaded folder.
+
 ### 1.1 Install ADB
 
 ADB (Android Debug Bridge) is the cable-side tool that lets your laptop talk
