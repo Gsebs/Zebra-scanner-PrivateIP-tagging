@@ -143,6 +143,16 @@ if ($needTermux -or $needWidget) {
 }
 Write-Ok
 
+# ---------- 3.5 Cleanup bad Android 14 storage state ----------
+# If a previous run tried to grant permissions silently via `pm grant`,
+# Android 14 can get stuck in a "half-granted" state where termux-setup-storage
+# won't prompt the user, but access is still secretly denied by the OS.
+# Revoking it forces the permission dialog to appear properly.
+Write-Log "Step 3.5/6: Resetting Termux permission state..."
+& adb shell pm revoke com.termux android.permission.READ_EXTERNAL_STORAGE 2>&1 | Out-Null
+& adb shell pm revoke com.termux android.permission.WRITE_EXTERNAL_STORAGE 2>&1 | Out-Null
+Write-Ok
+
 # ---------- 4. Push project files ----------
 Write-Log "Step 4/6: Pushing project files..."
 

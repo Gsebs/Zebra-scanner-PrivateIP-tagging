@@ -128,14 +128,15 @@ if $need_termux || $need_widget; then
 fi
 ok
 
-# ---------- 3.5 Grant storage permission via pm grant ----------
-# Without this, Termux can't even read the bootstrap script we pushed to
-# /sdcard. termux-setup-storage from inside the script can't help because
-# bash can't read the script in the first place (chicken-and-egg).
-# pm grant works on Android 14 because F-Droid Termux targets API 28.
-log "Step 3.5/6: Granting storage permission to Termux..."
-adb shell pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE >/dev/null 2>&1
-adb shell pm grant com.termux android.permission.READ_EXTERNAL_STORAGE >/dev/null 2>&1
+
+# ---------- 3.5 Cleanup bad Android 14 storage state ----------
+# If a previous run tried to grant permissions silently via `pm grant`,
+# Android 14 can get stuck in a "half-granted" state where termux-setup-storage
+# won't prompt the user, but access is still secretly denied by the OS.
+# Revoking it forces the permission dialog to appear properly.
+log "Step 3.5/6: Resetting Termux permission state..."
+adb shell pm revoke com.termux android.permission.READ_EXTERNAL_STORAGE >/dev/null 2>&1 || true
+adb shell pm revoke com.termux android.permission.WRITE_EXTERNAL_STORAGE >/dev/null 2>&1 || true
 ok
 
 # ---------- 4. Push project files ----------
