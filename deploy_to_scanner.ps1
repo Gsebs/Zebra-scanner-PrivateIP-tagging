@@ -8,7 +8,17 @@
 # permission popup (Android 14 requirement, unavoidable).
 # =============================================================================
 
-$ErrorActionPreference = "Stop"
+# PowerShell's "Stop" mode is too aggressive when wrapping native commands like
+# adb -- it converts ANY stderr output into a terminating error, even when the
+# command itself succeeded. (Example: `monkey` always prints "args: [...]" to
+# stderr.) We use "Continue" and check $LASTEXITCODE manually where we care.
+$ErrorActionPreference = "Continue"
+
+# Suppress non-terminating native-command errors from being printed to console.
+# With Continue mode, stderr from native commands shows as red "NativeCommand"
+# noise we don't want. Combined with 2>&1 | Out-Null below, this keeps the
+# console clean.
+$PSNativeCommandUseErrorActionPreference = $false
 
 # ---------- Configuration ----------
 $SOURCE_FILES = @("sync_and_upload.py", "config.json", "bootstrap_termux.sh")
@@ -70,11 +80,11 @@ Write-Ok
 
 # ---------- 2. Device detected & authorized? ----------
 Write-Log "Step 2/6: Detecting scanner..."
-& adb start-server | Out-Null
+& adb start-server 2>&1 | Out-Null
 
 # Find ALL authorized devices, not just the first. Picking the first silently
 # would break later adb calls if the user has e.g. their phone plugged in too.
-$devLines = & adb devices | Select-Object -Skip 1 | Where-Object { $_.Trim() -ne "" }
+$devLines = & adb devices 2>&1 | Select-Object -Skip 1 | Where-Object { $_.Trim() -ne "" }
 $authorized = @($devLines | Where-Object { $_ -match "\sdevice\s*$" } | ForEach-Object { ($_ -split '\s+')[0] })
 
 if ($authorized.Count -eq 0) {
@@ -103,7 +113,7 @@ Write-Ok
 
 # ---------- 3. Termux + Widget APKs ----------
 Write-Log "Step 3/6: Verifying Termux installation..."
-$pkgList = & adb shell pm list packages
+$pkgList = & adb shell pm list packages 2>&1
 $needTermux = -not ($pkgList -match "^package:$TERMUX_PKG\s*$")
 $needWidget = -not ($pkgList -match "^package:$WIDGET_PKG\s*$")
 
@@ -116,7 +126,7 @@ if ($needTermux -or $needWidget) {
         $apk = Find-Apk "com.termux_*.apk"
         if (-not $apk) { Write-Fail "Termux APK not found in $APK_DIR\. See vendor\README.md." }
         Write-Log "    Installing Termux: $($apk.Name)"
-        & adb install -r $apk.FullName | Out-Null
+        & adb install -r $apk.FullName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Fail "Termux install failed. If Termux from Play Store is installed, uninstall it first (signing-key conflict). On the scanner: Settings -> Apps -> Termux -> Uninstall."
         }
@@ -125,7 +135,7 @@ if ($needTermux -or $needWidget) {
         $apk = Find-Apk "com.termux.widget_*.apk"
         if (-not $apk) { Write-Fail "Termux:Widget APK not found in $APK_DIR\." }
         Write-Log "    Installing Termux:Widget: $($apk.Name)"
-        & adb install -r $apk.FullName | Out-Null
+        & adb install -r $apk.FullName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
             Write-Fail "Termux:Widget install failed (likely a signing-key conflict - see Termux note above)."
         }
@@ -140,19 +150,21 @@ if (-not (Test-Path "config.json")) {
     Write-Fail "config.json missing. Copy config_example.json to config.json and fill in your FTP credentials before running this script."
 }
 try {
-    Get-Content "config.json" -Raw | ConvertFrom-Json | Out-Null
+    # -ErrorAction Stop forces this to throw even though the global preference
+    # is "Continue". The try/catch needs a real exception to catch.
+    Get-Content "config.json" -Raw | ConvertFrom-Json -ErrorAction Stop | Out-Null
 }
 catch {
     Write-Fail "config.json is not valid JSON. Fix the syntax and re-run."
 }
 
-& adb shell mkdir -p $DEST_DIR | Out-Null
+& adb shell mkdir -p $DEST_DIR 2>&1 | Out-Null
 foreach ($f in $SOURCE_FILES) {
     if (-not (Test-Path $f)) { Write-Fail "Missing source file: $f" }
-    & adb push $f "$DEST_DIR/" | Out-Null
+    & adb push $f "$DEST_DIR/" 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Fail "Push failed: $f" }
 }
-& adb shell rm -f $SENTINEL 2>$null | Out-Null
+& adb shell rm -f $SENTINEL 2>&1 | Out-Null
 Write-Ok
 
 # ---------- 5. Launch Termux + run bootstrap ----------
@@ -167,21 +179,27 @@ Write-Host "    (Unavoidable on Android 14, only needed once per scanner.)" -For
 Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
 Write-Host ""
 
-& adb shell am force-stop com.termux 2>$null | Out-Null
+& adb shell am force-stop com.termux 2>&1 | Out-Null
 Start-Sleep -Seconds 1
-& adb shell input keyevent KEYCODE_WAKEUP 2>$null | Out-Null
-& adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>$null | Out-Null
+& adb shell input keyevent KEYCODE_WAKEUP 2>&1 | Out-Null
+# monkey is noisy on stderr ("args: [...]") even on success - must merge streams.
+& adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
 Start-Sleep -Seconds 4
 
-& adb shell input text "bash%s$DEST_DIR/bootstrap_termux.sh" | Out-Null
-& adb shell input keyevent 66 | Out-Null
+& adb shell input text "bash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
+& adb shell input keyevent 66 2>&1 | Out-Null
 
 # ---------- 6. Wait for sentinel ----------
 Write-Log "Step 6/6: Waiting for bootstrap to finish (this takes ~1-3 min)..."
 $elapsed = 0
 $status = $null
 while ($elapsed -lt $BOOTSTRAP_TIMEOUT) {
-    $content = & adb shell "cat $SENTINEL 2>/dev/null" 2>$null
+    # Inner 2>/dev/null is the Android shell side. Outer 2>&1 then filtered
+    # is the PowerShell side -- stderr from `cat` (when sentinel doesn't exist
+    # yet) won't reach us this way.
+    $content = & adb shell "cat $SENTINEL 2>/dev/null" 2>&1
+    # Filter out ErrorRecord objects in case any leaked through.
+    $content = $content | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }
     if ($content) {
         $status = ($content | Out-String).Trim()
         if ($status) { break }
@@ -195,7 +213,7 @@ if (-not $status) {
     Write-Host ""
     Write-Host "[X] Bootstrap timed out after $BOOTSTRAP_TIMEOUT seconds." -ForegroundColor Red
     Write-Host "    Pulling log..."
-    & adb pull $LOG_REMOTE .\bootstrap.log 2>$null | Out-Null
+    & adb pull $LOG_REMOTE .\bootstrap.log 2>&1 | Out-Null
     if (Test-Path .\bootstrap.log) { Write-Host "    See bootstrap.log in this folder." }
     exit 1
 }
@@ -203,7 +221,7 @@ if (-not $status) {
 if ($status -notlike "OK*") {
     Write-Host ""
     Write-Host "[X] Bootstrap reported failure: $status" -ForegroundColor Red
-    & adb pull $LOG_REMOTE .\bootstrap.log 2>$null | Out-Null
+    & adb pull $LOG_REMOTE .\bootstrap.log 2>&1 | Out-Null
     if (Test-Path .\bootstrap.log) { Write-Host "    See bootstrap.log in this folder." }
     exit 1
 }
