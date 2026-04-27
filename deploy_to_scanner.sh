@@ -4,8 +4,8 @@
 #
 # Connect a scanner via USB with USB Debugging on, run this script. The
 # script does everything else, including driving Termux on the scanner via
-# ADB input events. The only manual step on the scanner is tapping "Allow"
-# on the storage permission popup (Android 14 requirement - unavoidable).
+# ADB input events. The deployment is now entirely zero-touch (permissions
+# are granted automatically via ADB).
 # -----------------------------------------------------------------------------
 
 set -u
@@ -128,6 +128,16 @@ if $need_termux || $need_widget; then
 fi
 ok
 
+# ---------- 3.5 Grant storage permission via pm grant ----------
+# Without this, Termux can't even read the bootstrap script we pushed to
+# /sdcard. termux-setup-storage from inside the script can't help because
+# bash can't read the script in the first place (chicken-and-egg).
+# pm grant works on Android 14 because F-Droid Termux targets API 28.
+log "Step 3.5/6: Granting storage permission to Termux..."
+adb shell pm grant com.termux android.permission.WRITE_EXTERNAL_STORAGE >/dev/null 2>&1
+adb shell pm grant com.termux android.permission.READ_EXTERNAL_STORAGE >/dev/null 2>&1
+ok
+
 # ---------- 4. Push project files ----------
 log "Step 4/6: Pushing project files..."
 
@@ -153,12 +163,8 @@ log "Step 5/6: Running bootstrap on the scanner..."
 cat <<'EOF'
 
     -------------------------------------------------------------
-    LOOK AT THE SCANNER NOW.
-
-    Termux is being launched. An Android storage-permission
-    popup will appear - TAP "ALLOW" on the scanner.
-    (This is unavoidable on Android 14 and only needed once
-     per scanner.)
+    Termux is being launched automatically.
+    (Zero-touch deployment - no manual steps needed on the scanner!)
     -------------------------------------------------------------
 
 EOF

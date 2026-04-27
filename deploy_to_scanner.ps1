@@ -4,8 +4,7 @@
 # Connect a scanner via USB with USB Debugging on, then double-click
 # deploy_to_scanner.bat (which calls this file). The script does everything
 # else, including driving Termux on the scanner via ADB input events.
-# The only manual step on the scanner is tapping "Allow" on the storage
-# permission popup (Android 14 requirement, unavoidable).
+# The deployment is now zero-touch (no need to interact with the scanner).
 # =============================================================================
 
 # PowerShell's "Stop" mode is too aggressive when wrapping native commands like
@@ -171,11 +170,8 @@ Write-Ok
 Write-Log "Step 5/6: Running bootstrap on the scanner..."
 Write-Host ""
 Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
-Write-Host "    LOOK AT THE SCANNER NOW."                               -ForegroundColor Yellow
-Write-Host ""                                                            -ForegroundColor Yellow
-Write-Host "    Termux is being launched. An Android storage-permission" -ForegroundColor Yellow
-Write-Host "    popup will appear - TAP 'ALLOW' on the scanner."         -ForegroundColor Yellow
-Write-Host "    (Unavoidable on Android 14, only needed once per scanner.)" -ForegroundColor Yellow
+Write-Host "    Termux is being launched automatically."                 -ForegroundColor Yellow
+Write-Host "    (Zero-touch deployment - no manual steps needed on the scanner!)" -ForegroundColor Yellow
 Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
 Write-Host ""
 
