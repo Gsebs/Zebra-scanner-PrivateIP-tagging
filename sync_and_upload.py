@@ -12,10 +12,12 @@ so scan_dir is read from config.json - that's the single source of truth.
 
 import argparse
 import ftplib
+import glob
 import ipaddress
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -24,6 +26,8 @@ import sys
 CONFIG_FILE = "config.json"
 DEFAULT_FTP_TARGET = "/rfidscan/autoscan/inventory"
 DEFAULT_SCAN_DIR = "/sdcard/Inventory"
+DEFAULT_DOWNLOADS_DIR = "/sdcard/Download"
+RFID_GLOB_PATTERN = "RFID_*.csv"
 
 # Files that are already tagged start with "STORE_". We won't re-tag them.
 TAG_PATTERN = re.compile(r"^STORE_")
@@ -151,6 +155,49 @@ def prompt_store_number(subnet_start, ip_address):
 
     print(f"\n  -> Using Store Number: {final}")
     return final
+
+
+# ---------------------------------------------------------------------------
+# Gather RFID files from Downloads (new scanners)
+# ---------------------------------------------------------------------------
+def gather_from_downloads(scan_dir, downloads_dir):
+    """
+    Move RFID_*.csv files from the Downloads folder into scan_dir.
+
+    New Zebra scanners save RFID scans to /sdcard/Download instead of
+    /sdcard/Inventory.  By always checking Downloads and moving matches,
+    we handle both old and new scanners transparently:
+      - Old scanner: scans go to Inventory directly; Downloads has nothing
+        matching RFID_*.csv, so this is a no-op.
+      - New scanner: scans land in Downloads; we move them to Inventory
+        so the rest of the pipeline works identically.
+    """
+    pattern = os.path.join(downloads_dir, RFID_GLOB_PATTERN)
+    matches = glob.glob(pattern)
+
+    if not matches:
+        return 0
+
+    print(f"\nFound {len(matches)} RFID scan file(s) in {downloads_dir}:")
+    moved = 0
+    for src in matches:
+        filename = os.path.basename(src)
+        dest = os.path.join(scan_dir, filename)
+        # If a file with the same name already exists in Inventory, skip it
+        # to avoid overwriting a partially-processed file.
+        if os.path.exists(dest):
+            print(f"  Skipping '{filename}' (already in {scan_dir})")
+            continue
+        try:
+            shutil.move(src, dest)
+            print(f"  Moved: {filename}")
+            moved += 1
+        except OSError as e:
+            print(f"  [!] Failed to move '{filename}': {e}")
+
+    if moved:
+        print(f"  -> {moved} file(s) moved to {scan_dir}")
+    return moved
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +384,11 @@ def main():
         return
 
     # --- sync ---
+    # First, gather any RFID scan files from Downloads (new scanners save
+    # scans there instead of directly to Inventory).
+    downloads_dir = config.get("downloads_dir", DEFAULT_DOWNLOADS_DIR)
+    gather_from_downloads(target_dir, downloads_dir)
+
     ip_address, subnet_start = get_network_info()
     store_number = prompt_store_number(subnet_start, ip_address)
     processed = rename_files(target_dir, ip_address, store_number)
