@@ -196,7 +196,7 @@ Start-Sleep -Seconds 1
 & adb shell monkey -p com.termux -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
 Start-Sleep -Seconds 4
 
-& adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
+& adb shell input text "rm%s-rf%s~/storage;%stermux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" 2>&1 | Out-Null
 & adb shell input keyevent 66 2>&1 | Out-Null
 
 # ---------- 6. Wait for sentinel ----------

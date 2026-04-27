@@ -185,7 +185,7 @@ sleep 4
 
 # Type the bootstrap command. Note: `input text` interprets %s as space;
 # our path has no other special characters so this is safe.
-adb shell input text "termux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" >/dev/null
+adb shell input text "rm%s-rf%s~/storage;%stermux-setup-storage;%swhile%s!%sls%s$DEST_DIR%s>%s/dev/null%s2>&1;%sdo%ssleep%s1;%sdone;%sbash%s$DEST_DIR/bootstrap_termux.sh" >/dev/null
 adb shell input keyevent 66 >/dev/null   # 66 = ENTER
 
 # ---------- 6. Wait for sentinel ----------
