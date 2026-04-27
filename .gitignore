@@ -4,6 +4,11 @@ config.json
 # Termux APKs are downloaded per-machine, not committed
 vendor/*.apk
 
+# Optional local copy of Android Platform Tools (for users who don't want
+# to edit their system PATH). Not committed because it's large and
+# downloaded per-machine.
+platform-tools/
+
 # Local logs pulled from scanners during deployment
 bootstrap.log
 *.log

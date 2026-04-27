@@ -11,22 +11,30 @@
 $ErrorActionPreference = "Stop"
 
 # ---------- Configuration ----------
-$SOURCE_FILES        = @("sync_and_upload.py", "config.json", "bootstrap_termux.sh")
-$DEST_DIR            = "/sdcard/Download/ZebraTag"
-$SENTINEL            = "/sdcard/Download/ZebraTag/.bootstrap_done"
-$LOG_REMOTE          = "/sdcard/Download/ZebraTag/bootstrap.log"
-$APK_DIR             = "vendor"
-$TERMUX_PKG          = "com.termux"
-$WIDGET_PKG          = "com.termux.widget"
-$BOOTSTRAP_TIMEOUT   = 300
+$SOURCE_FILES = @("sync_and_upload.py", "config.json", "bootstrap_termux.sh")
+$DEST_DIR = "/sdcard/Download/ZebraTag"
+$SENTINEL = "/sdcard/Download/ZebraTag/.bootstrap_done"
+$LOG_REMOTE = "/sdcard/Download/ZebraTag/bootstrap.log"
+$APK_DIR = "vendor"
+$TERMUX_PKG = "com.termux"
+$WIDGET_PKG = "com.termux.widget"
+$BOOTSTRAP_TIMEOUT = 300
 
 # cd to the script's own folder so relative paths work regardless of where
 # the user double-clicked from.
 Set-Location -Path $PSScriptRoot
 
+# If a `platform-tools` subfolder exists next to this script, prefer the adb
+# from there. Lets Windows users avoid editing PATH - they can just extract
+# platform-tools.zip into the project folder and go.
+$localTools = Join-Path $PSScriptRoot "platform-tools"
+if (Test-Path (Join-Path $localTools "adb.exe")) {
+    $env:PATH = "$localTools;$env:PATH"
+}
+
 # ---------- Helpers ----------
 function Write-Log  ($msg) { Write-Host "[*] $msg" }
-function Write-Ok          { Write-Host "    OK" -ForegroundColor Green }
+function Write-Ok { Write-Host "    OK" -ForegroundColor Green }
 function Write-Fail ($msg) {
     Write-Host ""
     Write-Host "[X] $msg" -ForegroundColor Red
@@ -35,7 +43,7 @@ function Write-Fail ($msg) {
 
 function Find-Apk($pattern) {
     Get-ChildItem -Path $APK_DIR -Filter $pattern -ErrorAction SilentlyContinue |
-        Select-Object -First 1
+    Select-Object -First 1
 }
 
 Write-Host "=============================================="
@@ -64,16 +72,32 @@ Write-Ok
 Write-Log "Step 2/6: Detecting scanner..."
 & adb start-server | Out-Null
 
+# Find ALL authorized devices, not just the first. Picking the first silently
+# would break later adb calls if the user has e.g. their phone plugged in too.
 $devLines = & adb devices | Select-Object -Skip 1 | Where-Object { $_.Trim() -ne "" }
-$device   = $devLines | Where-Object { $_ -match "\sdevice\s*$" } | Select-Object -First 1
-if (-not $device) {
+$authorized = @($devLines | Where-Object { $_ -match "\sdevice\s*$" } | ForEach-Object { ($_ -split '\s+')[0] })
+
+if ($authorized.Count -eq 0) {
     $unauth = $devLines | Where-Object { $_ -match "unauthorized" } | Select-Object -First 1
     if ($unauth) {
         Write-Fail "Scanner is UNAUTHORIZED. Look at the scanner: tap 'Allow' on the USB-debugging prompt (and tick 'Always allow from this computer'), then re-run this script."
     }
     Write-Fail "No scanner detected. Verify: USB cable plugged in, USB Debugging enabled (Settings -> Developer Options -> USB Debugging ON), and 'Allow' tapped on the scanner."
 }
-$serial = ($device -split '\s+')[0]
+
+if ($authorized.Count -gt 1) {
+    Write-Host ""
+    Write-Host "[X] Multiple Android devices are connected:" -ForegroundColor Red
+    foreach ($d in $authorized) { Write-Host "      $d" }
+    Write-Host ""
+    Write-Host "    Unplug all other devices (phones, tablets, other scanners) and"
+    Write-Host "    leave only the scanner you want to deploy to. Then re-run."
+    exit 1
+}
+
+$serial = $authorized[0]
+# Pin every subsequent adb call to this exact device.
+$env:ANDROID_SERIAL = $serial
 Write-Host "    Device: $serial"
 Write-Ok
 
@@ -103,7 +127,7 @@ if ($needTermux -or $needWidget) {
         Write-Log "    Installing Termux:Widget: $($apk.Name)"
         & adb install -r $apk.FullName | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Fail "Termux:Widget install failed (likely a signing-key conflict — see Termux note above)."
+            Write-Fail "Termux:Widget install failed (likely a signing-key conflict - see Termux note above)."
         }
     }
 }
@@ -117,7 +141,8 @@ if (-not (Test-Path "config.json")) {
 }
 try {
     Get-Content "config.json" -Raw | ConvertFrom-Json | Out-Null
-} catch {
+}
+catch {
     Write-Fail "config.json is not valid JSON. Fix the syntax and re-run."
 }
 
@@ -133,13 +158,13 @@ Write-Ok
 # ---------- 5. Launch Termux + run bootstrap ----------
 Write-Log "Step 5/6: Running bootstrap on the scanner..."
 Write-Host ""
-Write-Host "    -------------------------------------------------------------" -ForegroundColor Yellow
-Write-Host "    LOOK AT THE SCANNER NOW."                                       -ForegroundColor Yellow
-Write-Host ""                                                                   -ForegroundColor Yellow
-Write-Host "    Termux is being launched. An Android storage-permission"        -ForegroundColor Yellow
-Write-Host "    popup will appear -- TAP 'ALLOW' on the scanner."               -ForegroundColor Yellow
-Write-Host "    (Unavoidable on Android 14, only needed once per scanner.)"     -ForegroundColor Yellow
-Write-Host "    -------------------------------------------------------------" -ForegroundColor Yellow
+Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
+Write-Host "    LOOK AT THE SCANNER NOW."                               -ForegroundColor Yellow
+Write-Host ""                                                            -ForegroundColor Yellow
+Write-Host "    Termux is being launched. An Android storage-permission" -ForegroundColor Yellow
+Write-Host "    popup will appear - TAP 'ALLOW' on the scanner."         -ForegroundColor Yellow
+Write-Host "    (Unavoidable on Android 14, only needed once per scanner.)" -ForegroundColor Yellow
+Write-Host "    -------------------------------------------------------" -ForegroundColor Yellow
 Write-Host ""
 
 & adb shell am force-stop com.termux 2>$null | Out-Null
@@ -154,7 +179,7 @@ Start-Sleep -Seconds 4
 # ---------- 6. Wait for sentinel ----------
 Write-Log "Step 6/6: Waiting for bootstrap to finish (this takes ~1-3 min)..."
 $elapsed = 0
-$status  = $null
+$status = $null
 while ($elapsed -lt $BOOTSTRAP_TIMEOUT) {
     $content = & adb shell "cat $SENTINEL 2>/dev/null" 2>$null
     if ($content) {

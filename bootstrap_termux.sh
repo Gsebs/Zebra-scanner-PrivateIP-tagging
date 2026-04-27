@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # -----------------------------------------------------------------------------
-# Zebra MC33 — bootstrap (runs ON the scanner inside Termux).
+# Zebra MC33 - bootstrap (runs ON the scanner inside Termux).
 #
 # This script is launched by the computer-side deploy script via `adb shell
 # input text`. It must run completely non-interactively.
@@ -111,7 +111,7 @@ echo "      OK"
 #    Inside the heredoc:
 #      $INSTALL_DIR  -> expanded NOW (so the literal path is baked into the
 #                       shortcut script).
-#      No \$VAR references — we don't need any runtime expansion.
+#      No \$VAR references - we don't need any runtime expansion.
 # -----------------------------------------------------------------------------
 echo "[5/5] Creating widget shortcuts..."
 mkdir -p "$SHORTCUT_DIR"

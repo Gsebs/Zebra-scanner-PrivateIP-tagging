@@ -1,5 +1,5 @@
 """
-Zebra MC33 — IP tagger and FTP uploader.
+Zebra MC33 - IP tagger and FTP uploader.
 
 Run modes:
     python sync_and_upload.py                  # uses scan_dir from config.json
@@ -7,7 +7,7 @@ Run modes:
     python sync_and_upload.py --action reset   # delete everything in scan_dir
 
 The widget shortcuts on the scanner call this with no positional argument,
-so scan_dir is read from config.json — that's the single source of truth.
+so scan_dir is read from config.json - that's the single source of truth.
 """
 
 import argparse
@@ -57,7 +57,7 @@ def get_network_info():
     Returns ("Unknown", "Unknown") if there's no Wi-Fi connectivity.
     """
     # IP via the standard "open a UDP socket to a public address" trick.
-    # No packets are actually sent — we just ask the kernel which interface
+    # No packets are actually sent - we just ask the kernel which interface
     # would be used, then read its source IP.
     local_ip = "Unknown"
     try:
@@ -69,7 +69,7 @@ def get_network_info():
     except Exception:
         return "Unknown", "Unknown"
 
-    # Subnet network address — parse `ip -4 addr show` for the interface
+    # Subnet network address - parse `ip -4 addr show` for the interface
     # that owns local_ip, then compute the network address.
     subnet_start = "Unknown"
     try:
@@ -131,13 +131,16 @@ def prompt_store_number(subnet_start, ip_address):
                 final = proposed
                 break
             if ans == "n":
-                entry = input("Enter the correct Store Number: ").strip()
-                if entry.isdigit():
-                    final = entry
-                    break
-                print("  Store Number must be digits only.")
-            else:
-                print("  Please answer 'y' or 'n'.")
+                # Loop here until they give us a valid number — don't bounce
+                # them back up to the y/n prompt.
+                while True:
+                    entry = input("Enter the correct Store Number: ").strip()
+                    if entry.isdigit():
+                        final = entry
+                        break
+                    print("  Store Number must be digits only.")
+                break
+            print("  Please answer 'y' or 'n'.")
     else:
         while not final:
             entry = input("\nPlease enter the Store Number: ").strip()
@@ -171,7 +174,7 @@ def list_files(directory):
 def rename_files(directory, ip_address, store_number):
     """
     Rename files to: STORE_{store#}_IP_{ip}_{originalname}
-    Idempotent — files starting with 'STORE_' are skipped.
+    Idempotent - files starting with 'STORE_' are skipped.
     Returns the list of full paths ready for upload.
     """
     processed = []

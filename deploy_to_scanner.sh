@@ -1,11 +1,11 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# Zebra MC33 — one-touch deploy (Mac / Linux).
+# Zebra MC33 - one-touch deploy (Mac / Linux).
 #
 # Connect a scanner via USB with USB Debugging on, run this script. The
 # script does everything else, including driving Termux on the scanner via
 # ADB input events. The only manual step on the scanner is tapping "Allow"
-# on the storage permission popup (Android 14 requirement — unavoidable).
+# on the storage permission popup (Android 14 requirement - unavoidable).
 # -----------------------------------------------------------------------------
 
 set -u
@@ -29,6 +29,15 @@ fail() { printf "\n[X] %s\n" "$1" >&2; exit 1; }
 find_apk() {
     ls -1 "$APK_DIR"/$1 2>/dev/null | head -n1
 }
+
+# If a `platform-tools` subfolder exists next to this script, prefer the adb
+# from there. This lets users avoid touching their system PATH - they can
+# just extract platform-tools.zip into the project folder and go.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_TOOLS="$SCRIPT_DIR/platform-tools"
+if [ -x "$LOCAL_TOOLS/adb" ]; then
+    export PATH="$LOCAL_TOOLS:$PATH"
+fi
 
 echo "=============================================="
 echo "  Zebra MC33 Deployment (Mac/Linux)"
@@ -55,15 +64,34 @@ ok
 log "Step 2/6: Detecting scanner..."
 adb start-server >/dev/null 2>&1
 
-DEVICE_LINE=$(adb devices | awk 'NR>1 && $2=="device" {print; exit}')
-if [ -z "$DEVICE_LINE" ]; then
+# Find ALL authorized devices, not just the first one. If we silently picked
+# the first when there are multiple (e.g. user's phone is also plugged in),
+# every subsequent adb call would fail with "more than one device".
+AUTHORIZED_DEVICES=$(adb devices | awk 'NR>1 && $2=="device" {print $1}')
+DEVICE_COUNT=$(echo "$AUTHORIZED_DEVICES" | grep -c . || true)
+
+if [ "$DEVICE_COUNT" -eq 0 ]; then
     UNAUTH=$(adb devices | awk 'NR>1 && $2=="unauthorized" {print; exit}')
     if [ -n "$UNAUTH" ]; then
         fail "Scanner is UNAUTHORIZED. Look at the scanner: tap 'Allow' on the USB-debugging prompt (and tick 'Always allow from this computer'), then re-run this script."
     fi
     fail "No scanner detected. Verify: USB cable plugged in, USB Debugging enabled (Settings -> Developer Options -> USB Debugging ON), and 'Allow' tapped on the scanner."
 fi
-SERIAL=$(echo "$DEVICE_LINE" | awk '{print $1}')
+
+if [ "$DEVICE_COUNT" -gt 1 ]; then
+    echo ""
+    echo "[X] Multiple Android devices are connected:" >&2
+    echo "$AUTHORIZED_DEVICES" | sed 's/^/      /' >&2
+    echo "" >&2
+    echo "    Unplug all other devices (phones, tablets, other scanners) and"  >&2
+    echo "    leave only the scanner you want to deploy to. Then re-run."     >&2
+    exit 1
+fi
+
+SERIAL="$AUTHORIZED_DEVICES"
+# Pin every subsequent adb call to this exact device, so unrelated devices
+# plugging in mid-run can't break things.
+export ANDROID_SERIAL="$SERIAL"
 printf "    Device: %s\n" "$SERIAL"
 ok
 
@@ -94,7 +122,7 @@ if $need_termux || $need_widget; then
         [ -z "$APK" ] && fail "Termux:Widget APK not found in $APK_DIR/."
         log "    Installing Termux:Widget: $APK"
         if ! adb install -r "$APK" >/dev/null 2>&1; then
-            fail "Termux:Widget install failed (likely a signing-key conflict — see Termux note above)."
+            fail "Termux:Widget install failed (likely a signing-key conflict - see Termux note above)."
         fi
     fi
 fi
@@ -128,7 +156,7 @@ cat <<'EOF'
     LOOK AT THE SCANNER NOW.
 
     Termux is being launched. An Android storage-permission
-    popup will appear — TAP "ALLOW" on the scanner.
+    popup will appear - TAP "ALLOW" on the scanner.
     (This is unavoidable on Android 14 and only needed once
      per scanner.)
     -------------------------------------------------------------
